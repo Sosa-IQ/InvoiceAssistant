@@ -73,6 +73,7 @@ async def upload_invoice(
     # 6. Extract metadata hints and update record
     hints = parser.extract_metadata_hints(text)
     record.invoice_number = hints.get("invoice_number")
+    record.client_name = hints.get("client_name")
     record.issue_date = hints.get("issue_date")
     record.grand_total = hints.get("grand_total")
     record.status = "indexed"
