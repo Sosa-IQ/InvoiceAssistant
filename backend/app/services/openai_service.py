@@ -54,11 +54,20 @@ def _build_system_prompt(
     business_profile: dict,
     rag_context: str,
     next_invoice_number: str,
+    client_context: list[dict],
 ) -> str:
     today = date.today().isoformat()
     schema_json = json.dumps(_SCHEMA_EXAMPLE, indent=2)
     profile_json = json.dumps(business_profile, indent=2)
     rag_block = rag_context if rag_context else "(no historical invoices available)"
+    client_json = json.dumps(client_context, indent=2) if client_context else "[]"
+
+    single_client_rule = ""
+    if len(client_context) == 1:
+        single_client_rule = (
+            f'- Only one client exists ("{client_context[0]["name"]}"); '
+            "use them automatically if no client name is mentioned in the prompt\n"
+        )
 
     return f"""You are an invoice generation assistant. Return ONLY valid JSON matching the schema below.
 No explanations, no markdown fences, no trailing commas.
@@ -69,12 +78,20 @@ Rules:
 - Use null (never "") for unknown optional fields
 - Set invoice_number to "{next_invoice_number}" exactly — do not change it
 - Populate the "from" block from the BUSINESS PROFILE below
+{single_client_rule}- If the prompt mentions a client name or partial address, match to the CLIENT DATA below
+- Set to.client_id to the matched client's id, and copy their name, email, phone into the "to" block
+- Match partial addresses (e.g. "21 Wake Ave") to the closest full address in the client's addresses list; always use the FULL stored address string, never the partial text from the prompt
+- If the client has only one address, use it automatically
+- If the client has multiple addresses and none match the prompt, leave to.address as null
 
 SCHEMA:
 {schema_json}
 
 BUSINESS PROFILE:
 {profile_json}
+
+CLIENT DATA:
+{client_json}
 
 HISTORICAL INVOICE CONTEXT:
 {rag_block}"""
@@ -99,6 +116,7 @@ class OpenAIService:
         business_profile: dict,
         rag_context: str,
         next_invoice_number: str,
+        client_context: list[dict] | None = None,
     ) -> InvoiceData:
         """
         Call gpt-4o-mini and return a validated InvoiceData.
@@ -111,6 +129,7 @@ class OpenAIService:
             business_profile=business_profile,
             rag_context=rag_context,
             next_invoice_number=next_invoice_number,
+            client_context=client_context or [],
         )
 
         last_error: Exception | None = None

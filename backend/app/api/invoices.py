@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models.db_models import BusinessSettings, InvoiceRecord
+from app.models.db_models import BusinessSettings, Client, InvoiceRecord
 from app.models.schemas import (
     BulkUploadResponse,
     GenerateInvoiceRequest,
@@ -180,18 +181,37 @@ async def generate_invoice(
             "payment_notes": settings_row.payment_notes,
         }
 
-    # 3. Retrieve RAG context
+    # 3. Load all clients with their addresses for context injection
+    clients_result = await db.execute(
+        select(Client).options(selectinload(Client.addresses)).order_by(Client.name)
+    )
+    client_context = [
+        {
+            "id": c.id,
+            "name": c.name,
+            "email": c.email,
+            "phone": c.phone,
+            "addresses": [
+                {"id": a.id, "label": a.label, "address": a.address}
+                for a in c.addresses
+            ],
+        }
+        for c in clients_result.scalars().all()
+    ]
+
+    # 4. Retrieve RAG context
     vector_store = request.app.state.vector_store
     rag_svc = RAGService(vector_store)
     rag_context, docs_used = rag_svc.get_context(body.prompt)
 
-    # 4. Call OpenAI
+    # 5. Call OpenAI
     try:
         invoice_data = openai_svc.generate_invoice(
             prompt=body.prompt,
             business_profile=business_profile,
             rag_context=rag_context,
             next_invoice_number=next_number,
+            client_context=client_context,
         )
     except ValueError as exc:
         logger.error("Invoice generation failed: %s", exc)

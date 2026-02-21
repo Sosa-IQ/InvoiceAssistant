@@ -74,13 +74,21 @@ export interface GenerateInvoiceResponse {
   rag_docs_used: number
 }
 
+export interface ClientAddress {
+  id: number
+  client_id: number
+  label: string | null
+  address: string
+  created_at: string | null
+}
+
 export interface Client {
   id: number
   name: string
-  address: string | null
   email: string | null
   phone: string | null
   notes: string | null
+  addresses: ClientAddress[]
   created_at: string | null
   updated_at: string | null
 }

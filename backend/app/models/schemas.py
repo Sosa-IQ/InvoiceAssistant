@@ -32,9 +32,23 @@ class BusinessSettingsUpdate(BaseModel):
 # Clients
 # ---------------------------------------------------------------------------
 
+class ClientAddressCreate(BaseModel):
+    label: Optional[str] = None
+    address: str
+
+
+class ClientAddressRead(BaseModel):
+    id: int
+    client_id: int
+    label: Optional[str] = None
+    address: str
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class ClientCreate(BaseModel):
     name: str
-    address: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     notes: Optional[str] = None
@@ -43,10 +57,10 @@ class ClientCreate(BaseModel):
 class ClientRead(BaseModel):
     id: int
     name: str
-    address: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     notes: Optional[str] = None
+    addresses: list[ClientAddressRead] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -55,7 +69,6 @@ class ClientRead(BaseModel):
 
 class ClientUpdate(BaseModel):
     name: Optional[str] = None
-    address: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     notes: Optional[str] = None
