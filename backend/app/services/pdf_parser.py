@@ -76,26 +76,48 @@ class PDFParserService:
         """
         hints: dict = {}
 
-        # Invoice number patterns: INV-2024-001, Invoice #1234, etc.
+        # Invoice number: "Invoice #1", "# 1", "INV-2024-001", "Invoice No: 42"
         inv_match = re.search(
-            r"(?:invoice\s*(?:no|number|#)[:\s]*)([\w\-]+)",
+            r"(?:invoice\s*(?:no\.?|number|#)[:\s]*|(?:^|\s)#\s*)([A-Z0-9][\w\-]*)",
             text,
-            re.IGNORECASE,
+            re.IGNORECASE | re.MULTILINE,
         )
         if inv_match:
             hints["invoice_number"] = inv_match.group(1).strip()
 
-        # Date patterns: 2024-01-15, 01/15/2024, January 15, 2024
+        # Date: 2024-01-15, 01/15/2024, Feb 12 2026, February 12, 2026
         date_match = re.search(
-            r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{4})\b",
+            r"\b("
+            r"\d{4}-\d{2}-\d{2}"
+            r"|\d{1,2}/\d{1,2}/\d{4}"
+            r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}"
+            r")\b",
             text,
+            re.IGNORECASE,
         )
         if date_match:
             hints["issue_date"] = date_match.group(1).strip()
 
-        # Total amount: $1,234.56 or Total: 1234.56
+        # Client name: prefer the next line after "Bill To:" (handles side-by-side layouts),
+        # fall back to same-line text if the next line isn't useful.
+        client_match = re.search(
+            r"bill(?:ed)?\s+to[:\s]+[^\n]*\n([^\n]+)",
+            text,
+            re.IGNORECASE,
+        )
+        if not client_match:
+            # Same-line fallback: stop before keywords like "Date:"
+            client_match = re.search(
+                r"bill(?:ed)?\s+to[:\s]+((?:(?!date:|due:|invoice:)[^\n,])+)",
+                text,
+                re.IGNORECASE,
+            )
+        if client_match:
+            hints["client_name"] = client_match.group(1).strip()
+
+        # Total: "Balance Due", "Grand Total", "Total Due", "Amount Due", "Total:"
         total_match = re.search(
-            r"(?:grand\s*total|total\s*due|amount\s*due)[:\s]*\$?([\d,]+\.?\d*)",
+            r"(?:balance\s*due|grand\s*total|total\s*due|amount\s*due|total)[:\s]*\$?([\d,]+\.?\d*)",
             text,
             re.IGNORECASE,
         )
