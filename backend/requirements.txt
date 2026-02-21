@@ -1,0 +1,26 @@
+# Web framework
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.19
+
+# Database
+sqlalchemy==2.0.36
+aiosqlite==0.20.0
+
+# Vector store
+chromadb==0.6.3
+
+# AI
+anthropic==0.42.0
+
+# PDF parsing
+pdfplumber==0.11.4
+
+# PDF generation
+weasyprint==63.1
+jinja2==3.1.5
+
+# Config
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
