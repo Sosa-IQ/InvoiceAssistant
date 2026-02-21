@@ -1,7 +1,7 @@
 import { useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Upload, FileText, CheckCircle, XCircle, Loader2, Eye, BookOpen, RefreshCw, Trash2 } from "lucide-react"
+import { Upload, FileText, CheckCircle, XCircle, Loader2, Eye, BookOpen, RefreshCw, Trash2, Pencil } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { listInvoices, uploadInvoices, openInvoicePdf, indexInvoice, deleteInvoice } from "@/api/invoices"
-import type { InvoiceRecord } from "@/types/invoice"
+import type { InvoiceData, InvoiceRecord } from "@/types/invoice"
 
 const STATUS_COLORS: Record<string, string> = {
   indexed: "bg-green-100 text-green-800",
@@ -94,6 +94,16 @@ export default function InvoicesPage() {
       toast.error("Failed to delete invoice.")
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  function handleEdit(r: InvoiceRecord) {
+    if (!r.invoice_json) return
+    try {
+      const invoice = JSON.parse(r.invoice_json) as InvoiceData
+      navigate("/invoices/editor", { state: { invoice } })
+    } catch {
+      toast.error("Could not load invoice data.")
     }
   }
 
@@ -207,6 +217,19 @@ export default function InvoicesPage() {
                           {viewingId === r.id
                             ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             : <Eye className="h-3.5 w-3.5" />}
+                        </Button>
+                      )}
+
+                      {/* Edit button — only for generated invoices with stored JSON */}
+                      {r.source === "generated" && r.invoice_json && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => handleEdit(r)}
+                          title="Edit invoice"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       )}
 
