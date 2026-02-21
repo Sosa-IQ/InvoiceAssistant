@@ -6,6 +6,7 @@ python-multipart==0.0.19
 # Database
 sqlalchemy==2.0.36
 aiosqlite==0.20.0
+greenlet==3.1.1
 
 # Vector store
 chromadb==0.6.3
