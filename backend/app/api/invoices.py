@@ -1,9 +1,10 @@
 import io
 import logging
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -141,6 +142,26 @@ async def list_invoices(
     )
     records = result.scalars().all()
     return [InvoiceRecordRead.model_validate(r) for r in records]
+
+
+@router.get("/{record_id}/pdf")
+async def view_invoice_pdf(
+    record_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """Return the stored PDF for a given invoice record (inline, for browser preview)."""
+    result = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id))
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(404, "Invoice record not found.")
+    path = Path(record.file_path)
+    if not path.exists():
+        raise HTTPException(404, "PDF file not found on disk.")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{record.filename}"'},
+    )
 
 
 @router.post("/generate", response_model=GenerateInvoiceResponse)

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Upload, FileText, CheckCircle, XCircle, Loader2 } from "lucide-react"
+import { Upload, FileText, CheckCircle, XCircle, Loader2, Eye } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { listInvoices, uploadInvoices } from "@/api/invoices"
+import { listInvoices, uploadInvoices, openInvoicePdf } from "@/api/invoices"
 import type { InvoiceRecord } from "@/types/invoice"
 
 const STATUS_COLORS: Record<string, string> = {
@@ -22,6 +22,8 @@ const STATUS_COLORS: Record<string, string> = {
   draft: "bg-slate-100 text-slate-700",
   exported: "bg-blue-100 text-blue-800",
 }
+
+const VIEWABLE = new Set(["indexed", "exported"])
 
 function fmt(val: number | null, currency = "USD") {
   if (val == null) return "—"
@@ -34,6 +36,7 @@ export default function InvoicesPage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [viewingId, setViewingId] = useState<number | null>(null)
 
   const { data: records = [], isLoading } = useQuery<InvoiceRecord[]>({
     queryKey: ["invoices"],
@@ -64,6 +67,17 @@ export default function InvoicesPage() {
     } finally {
       setUploading(false)
       if (inputRef.current) inputRef.current.value = ""
+    }
+  }
+
+  async function handleView(r: InvoiceRecord) {
+    setViewingId(r.id)
+    try {
+      await openInvoicePdf(r.id)
+    } catch {
+      toast.error("Could not open PDF.")
+    } finally {
+      setViewingId(null)
     }
   }
 
@@ -109,7 +123,7 @@ export default function InvoicesPage() {
       {/* History table */}
       <div>
         <h2 className="text-sm font-medium text-muted-foreground mb-2">
-          Upload History ({records.length})
+          History ({records.length})
         </h2>
         {isLoading ? (
           <div className="flex justify-center py-10">
@@ -118,7 +132,7 @@ export default function InvoicesPage() {
         ) : records.length === 0 ? (
           <div className="text-center py-10 text-muted-foreground text-sm">
             <FileText className="h-8 w-8 mx-auto mb-2 opacity-40" />
-            No invoices uploaded yet.
+            No invoices yet.
           </div>
         ) : (
           <Table>
@@ -130,6 +144,7 @@ export default function InvoicesPage() {
                 <TableHead>Date</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="w-16" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -146,6 +161,22 @@ export default function InvoicesPage() {
                       {r.status === "parse_failed" && <XCircle className="h-3 w-3" />}
                       {r.status}
                     </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {VIEWABLE.has(r.status) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => handleView(r)}
+                        disabled={viewingId === r.id}
+                        title="View PDF"
+                      >
+                        {viewingId === r.id
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <Eye className="h-3.5 w-3.5" />}
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

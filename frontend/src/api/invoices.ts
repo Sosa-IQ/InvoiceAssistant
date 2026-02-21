@@ -29,3 +29,12 @@ export async function exportInvoice(invoice: InvoiceData): Promise<Blob> {
   })
   return data
 }
+
+export async function openInvoicePdf(recordId: number): Promise<void> {
+  const { data } = await api.get<Blob>(`/api/invoices/${recordId}/pdf`, {
+    responseType: "blob",
+  })
+  const url = URL.createObjectURL(data)
+  window.open(url, "_blank")
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
