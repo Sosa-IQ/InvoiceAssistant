@@ -83,6 +83,7 @@ Rules:
 - Match partial addresses (e.g. "21 Wake Ave") to the closest full address in the client's addresses list; always use the FULL stored address string, never the partial text from the prompt
 - If the client has only one address, use it automatically
 - If the client has multiple addresses and none match the prompt, leave to.address as null
+- If the prompt contains work done on multiple distinct dates, prefix each line item description with its date in "M/DD:" format (e.g. "2/16: Remove mold from bathroom"). If only one date is mentioned, do NOT add a date prefix — just use the description as-is
 
 SCHEMA:
 {schema_json}
