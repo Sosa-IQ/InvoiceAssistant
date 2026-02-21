@@ -131,7 +131,25 @@ class InvoiceRecordRead(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Invoice JSON Schema (Claude output contract + editor payload)
+# Bulk upload response
+# ---------------------------------------------------------------------------
+
+class UploadResult(BaseModel):
+    filename: str
+    success: bool
+    record: Optional[InvoiceRecordRead] = None
+    error: Optional[str] = None
+
+
+class BulkUploadResponse(BaseModel):
+    results: list[UploadResult]
+    total: int
+    succeeded: int
+    failed: int
+
+
+# ---------------------------------------------------------------------------
+# Invoice JSON Schema (OpenAI output contract + editor payload)
 # ---------------------------------------------------------------------------
 
 class ContactInfo(BaseModel):

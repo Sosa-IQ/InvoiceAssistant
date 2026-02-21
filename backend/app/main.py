@@ -49,6 +49,9 @@ app.add_middleware(
 )
 
 # Routers
-from app.api import invoices  # noqa: E402 (import after app creation)
+from app.api import catalog, clients, invoices, settings  # noqa: E402
 
 app.include_router(invoices.router)
+app.include_router(clients.router)
+app.include_router(catalog.router)
+app.include_router(settings.router)

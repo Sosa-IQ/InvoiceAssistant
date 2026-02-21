@@ -8,7 +8,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
     )
 
-    anthropic_api_key: str = ""
+    openai_api_key: str = ""
     data_dir: Path = Path("./data")
     chroma_dir: Path = Path("./data/chroma")
     db_path: Path = Path("./data/app.db")
