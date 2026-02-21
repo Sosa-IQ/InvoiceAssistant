@@ -6,7 +6,6 @@ export interface ContactInfo {
   email: string | null
   phone: string | null
   logo_path: string | null
-  tax_id: string | null
 }
 
 export interface ClientContact {
@@ -22,39 +21,23 @@ export interface LineItem {
   quantity: number
   unit: string
   unit_price: number
-  discount_pct: number
-  tax_pct: number
   subtotal: number
 }
 
 export interface Totals {
   subtotal: number
-  discount_total: number
-  tax_total: number
   grand_total: number
-}
-
-export interface PaymentInfo {
-  bank_name: string | null
-  account_name: string | null
-  account_number: string | null
-  routing_number: string | null
-  additional_instructions: string | null
 }
 
 export interface InvoiceData {
   invoice_number: string | null
   issue_date: string | null
-  due_date: string | null
-  currency: string
   status: string
   from: ContactInfo
   to: ClientContact
   line_items: LineItem[]
   totals: Totals
-  payment_terms: string | null
   notes: string | null
-  payment_info: PaymentInfo
 }
 
 export interface InvoiceRecord {
@@ -118,15 +101,6 @@ export interface BusinessSettings {
   address: string | null
   email: string | null
   phone: string | null
-  tax_id: string | null
   logo_path: string | null
-  default_currency: string
-  default_tax_pct: number
-  payment_terms: string
-  bank_name: string | null
-  account_name: string | null
-  account_number: string | null
-  routing_number: string | null
-  payment_notes: string | null
   updated_at: string | null
 }

@@ -23,32 +23,19 @@ class PDFGeneratorService:
         """
         Recompute all line item subtotals and invoice totals server-side.
         This is the authoritative calculation — frontend values are ignored.
+        subtotal = quantity * unit_price (no discount or tax)
         """
         subtotal = 0.0
-        discount_total = 0.0
-        tax_total = 0.0
 
         for li in invoice.line_items:
-            #DEBUG
-            logger.info("Calculating line item: %s, qty=%s, unit_price=%s, discount_pct=%s, tax_pct=%s",
-                         li.description, li.quantity, li.unit_price, li.discount_pct, li.tax_pct)
-            li_subtotal = li.quantity * li.unit_price * (1 - li.discount_pct / 100)
-            li_discount = li.quantity * li.unit_price * (li.discount_pct / 100)
-            li_tax = li_subtotal * (li.tax_pct / 100)
-            li.subtotal = round(li_subtotal, 10)
+            li_subtotal = li.quantity * li.unit_price
+            li.subtotal = li_subtotal
             subtotal += li_subtotal
-            discount_total += li_discount
-            tax_total += li_tax
 
         invoice.totals = Totals(
             subtotal=subtotal,
-            discount_total=discount_total,
-            tax_total=tax_total,
-            grand_total=subtotal + tax_total,
+            grand_total=subtotal,
         )
-        #DEBUG
-        logger.info("Recalculated totals: subtotal=%.2f, discount_total=%.2f, tax_total=%.2f, grand_total=%.2f",
-                     invoice.totals.subtotal, invoice.totals.discount_total, invoice.totals.tax_total, invoice.totals.grand_total)
         return invoice
 
     def render_pdf(self, invoice: InvoiceData, logo_path: str | None = None) -> bytes:
@@ -77,8 +64,6 @@ class PDFGeneratorService:
         template = self.env.get_template("invoice.html")
         # Serialize using alias=True so the template sees "from" (not "from_")
         invoice_dict = invoice.model_dump(by_alias=True)
-        #DEBUG
-        logger.info("Rendering invoice %s with data: %s", invoice.invoice_number, invoice_dict)
         html = template.render(invoice=invoice_dict, logo_data_uri=logo_data_uri)
 
         logger.info("Rendering PDF for invoice %s", invoice.invoice_number)

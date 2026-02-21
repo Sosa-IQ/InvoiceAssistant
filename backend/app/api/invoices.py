@@ -1,6 +1,5 @@
 import io
 import logging
-from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -158,8 +157,7 @@ async def generate_invoice(
     # 1. Determine next invoice number from the DB
     result = await db.execute(select(func.count()).select_from(InvoiceRecord))
     total = result.scalar_one()
-    year = date.today().year
-    next_number = f"INV-{year}-{total + 1:04d}"
+    next_number = f"Invoice-#{total + 1}"
 
     # 2. Load business settings (may be empty on first use)
     settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.id == 1))
@@ -249,7 +247,7 @@ async def export_invoice(
         existing.client_name = invoice.to.name
         existing.issue_date = invoice.issue_date
         existing.grand_total = invoice.totals.grand_total
-        existing.currency = invoice.currency
+        existing.currency = "USD"
         existing.status = "exported"
         await db.commit()
     else:
@@ -261,7 +259,7 @@ async def export_invoice(
             client_name=invoice.to.name,
             issue_date=invoice.issue_date,
             grand_total=invoice.totals.grand_total,
-            currency=invoice.currency,
+            currency="USD",
             status="exported",
         )
         db.add(record)
