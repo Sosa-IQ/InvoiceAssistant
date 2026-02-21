@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Separator } from "@/components/ui/separator"
 import { getSettings, updateSettings } from "@/api/settings"
 import type { BusinessSettings } from "@/types/invoice"
 
@@ -59,37 +58,6 @@ export default function SettingsPage() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5"><Label>Email</Label><Input {...register("email")} type="email" /></div>
             <div className="space-y-1.5"><Label>Phone</Label><Input {...register("phone")} /></div>
-          </div>
-          <div className="space-y-1.5"><Label>Tax ID / EIN</Label><Input {...register("tax_id")} /></div>
-        </section>
-
-        <Separator />
-
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Invoice Defaults</h2>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5"><Label>Default Currency</Label><Input {...register("default_currency")} placeholder="USD" /></div>
-            <div className="space-y-1.5">
-              <Label>Default Tax %</Label>
-              <Input {...register("default_tax_pct", { valueAsNumber: true })} type="number" min={0} max={100} step="0.01" />
-            </div>
-          </div>
-          <div className="space-y-1.5"><Label>Payment Terms</Label><Input {...register("payment_terms")} placeholder="Net 30" /></div>
-        </section>
-
-        <Separator />
-
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Bank / Payment Info</h2>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5"><Label>Bank Name</Label><Input {...register("bank_name")} /></div>
-            <div className="space-y-1.5"><Label>Account Name</Label><Input {...register("account_name")} /></div>
-            <div className="space-y-1.5"><Label>Account Number</Label><Input {...register("account_number")} /></div>
-            <div className="space-y-1.5"><Label>Routing Number</Label><Input {...register("routing_number")} /></div>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Payment Notes</Label>
-            <Textarea {...register("payment_notes")} rows={2} className="resize-none" placeholder="Additional payment instructions…" />
           </div>
         </section>
 

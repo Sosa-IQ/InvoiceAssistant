@@ -15,10 +15,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _SCHEMA_EXAMPLE = {
     "invoice": {
-        "invoice_number": "INV-2025-0042",
+        "invoice_number": "Invoice-#1",
         "issue_date": "2025-11-01",
-        "due_date": "2025-11-15",
-        "currency": "USD",
         "status": "draft",
         "from": {
             "name": "",
@@ -26,7 +24,6 @@ _SCHEMA_EXAMPLE = {
             "email": "",
             "phone": "",
             "logo_path": None,
-            "tax_id": None,
         },
         "to": {
             "client_id": None,
@@ -41,26 +38,14 @@ _SCHEMA_EXAMPLE = {
                 "quantity": 1,
                 "unit": "item",
                 "unit_price": 0.0,
-                "discount_pct": 0.0,
-                "tax_pct": 0.0,
                 "subtotal": 0.0,
             }
         ],
         "totals": {
             "subtotal": 0.0,
-            "discount_total": 0.0,
-            "tax_total": 0.0,
             "grand_total": 0.0,
         },
-        "payment_terms": "Net 30",
         "notes": None,
-        "payment_info": {
-            "bank_name": None,
-            "account_name": None,
-            "account_number": None,
-            "routing_number": None,
-            "additional_instructions": None,
-        },
     }
 }
 
@@ -69,29 +54,45 @@ def _build_system_prompt(
     business_profile: dict,
     rag_context: str,
     next_invoice_number: str,
+    client_context: list[dict],
 ) -> str:
     today = date.today().isoformat()
     schema_json = json.dumps(_SCHEMA_EXAMPLE, indent=2)
     profile_json = json.dumps(business_profile, indent=2)
     rag_block = rag_context if rag_context else "(no historical invoices available)"
+    client_json = json.dumps(client_context, indent=2) if client_context else "[]"
+
+    single_client_rule = ""
+    if len(client_context) == 1:
+        single_client_rule = (
+            f'- Only one client exists ("{client_context[0]["name"]}"); '
+            "use them automatically if no client name is mentioned in the prompt\n"
+        )
 
     return f"""You are an invoice generation assistant. Return ONLY valid JSON matching the schema below.
 No explanations, no markdown fences, no trailing commas.
 
 Rules:
-- Calculate each line item subtotal: quantity * unit_price * (1 - discount_pct / 100)
+- Calculate each line item subtotal: quantity * unit_price
 - Use today's date ({today}) as issue_date if the user does not specify one
-- Infer due_date from payment_terms (e.g. "Net 30" means issue_date + 30 days)
 - Use null (never "") for unknown optional fields
 - Set invoice_number to "{next_invoice_number}" exactly — do not change it
 - Populate the "from" block from the BUSINESS PROFILE below
-- Keep tax_pct per line item at 0.0 unless the user specifies a tax rate
+{single_client_rule}- If the prompt mentions a client name or partial address, match to the CLIENT DATA below
+- Set to.client_id to the matched client's id, and copy their name, email, phone into the "to" block
+- Match partial addresses (e.g. "21 Wake Ave") to the closest full address in the client's addresses list; always use the FULL stored address string, never the partial text from the prompt
+- If the client has only one address, use it automatically
+- If the client has multiple addresses and none match the prompt, leave to.address as null
+- If the prompt contains work done on multiple distinct dates, prefix each line item description with its date in "M/DD:" format (e.g. "2/16: Remove mold from bathroom"). If only one date is mentioned, do NOT add a date prefix — just use the description as-is
 
 SCHEMA:
 {schema_json}
 
 BUSINESS PROFILE:
 {profile_json}
+
+CLIENT DATA:
+{client_json}
 
 HISTORICAL INVOICE CONTEXT:
 {rag_block}"""
@@ -116,6 +117,7 @@ class OpenAIService:
         business_profile: dict,
         rag_context: str,
         next_invoice_number: str,
+        client_context: list[dict] | None = None,
     ) -> InvoiceData:
         """
         Call gpt-4o-mini and return a validated InvoiceData.
@@ -128,6 +130,7 @@ class OpenAIService:
             business_profile=business_profile,
             rag_context=rag_context,
             next_invoice_number=next_invoice_number,
+            client_context=client_context or [],
         )
 
         last_error: Exception | None = None

@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Float, Integer, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -35,7 +35,7 @@ class Client(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    address: Mapped[str | None] = mapped_column(Text)
+    address: Mapped[str | None] = mapped_column(Text)  # kept for legacy; use ClientAddress going forward
     email: Mapped[str | None] = mapped_column(String)
     phone: Mapped[str | None] = mapped_column(String)
     notes: Mapped[str | None] = mapped_column(Text)
@@ -43,6 +43,22 @@ class Client(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=func.now(), onupdate=func.now()
     )
+
+    addresses: Mapped[list["ClientAddress"]] = relationship(
+        "ClientAddress", cascade="all, delete-orphan", lazy="raise"
+    )
+
+
+class ClientAddress(Base):
+    __tablename__ = "client_addresses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    client_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    label: Mapped[str | None] = mapped_column(String)  # e.g. "123 Main St property"
+    address: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 
 class CatalogItem(Base):
@@ -78,4 +94,5 @@ class InvoiceRecord(Base):
     currency: Mapped[str] = mapped_column(String, default="USD")
     chroma_doc_id: Mapped[str | None] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, default="draft")
+    invoice_json: Mapped[str | None] = mapped_column(Text)  # full InvoiceData JSON, stored at export time
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

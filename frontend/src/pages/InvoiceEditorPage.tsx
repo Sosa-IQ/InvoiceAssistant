@@ -19,14 +19,8 @@ function defaultLineItem() {
     quantity: 1,
     unit: "item",
     unit_price: 0,
-    discount_pct: 0,
-    tax_pct: 0,
     subtotal: 0,
   }
-}
-
-function calcSubtotal(qty: number, price: number, disc: number) {
-  return qty * price * (1 - disc / 100)
 }
 
 function fmt(n: number) {
@@ -55,30 +49,20 @@ export default function InvoiceEditorPage() {
       defaultValues: initialInvoice ?? {
         invoice_number: "",
         issue_date: "",
-        due_date: "",
-        currency: "USD",
         status: "draft",
-        from: { name: null, address: null, email: null, phone: null, logo_path: null, tax_id: null },
+        from: { name: null, address: null, email: null, phone: null, logo_path: null },
         to: { client_id: null, name: null, address: null, email: null, phone: null },
         line_items: [defaultLineItem()],
-        totals: { subtotal: 0, discount_total: 0, tax_total: 0, grand_total: 0 },
-        payment_terms: "Net 30",
+        totals: { subtotal: 0, grand_total: 0 },
         notes: null,
-        payment_info: { bank_name: null, account_name: null, account_number: null, routing_number: null, additional_instructions: null },
       },
     })
 
   const { fields, append, remove } = useFieldArray({ control, name: "line_items" })
   const lineItems = useWatch({ control, name: "line_items" }) ?? []
 
-  // Compute live totals
-  const subtotal = lineItems.reduce((s, li) => s + calcSubtotal(+li.quantity, +li.unit_price, +li.discount_pct), 0)
-  const discountTotal = lineItems.reduce((s, li) => s + (+li.quantity * +li.unit_price * (+li.discount_pct / 100)), 0)
-  const taxTotal = lineItems.reduce((s, li) => {
-    const base = calcSubtotal(+li.quantity, +li.unit_price, +li.discount_pct)
-    return s + base * (+li.tax_pct / 100)
-  }, 0)
-  const grandTotal = subtotal + taxTotal
+  // Compute live total (display only — server recalculates on export)
+  const total = lineItems.reduce((s, li) => s + (+li.quantity * +li.unit_price), 0)
 
   // Persist draft to localStorage on every change
   const watchedValues = useWatch({ control })
@@ -145,23 +129,11 @@ export default function InvoiceEditorPage() {
         <section className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label>Invoice Number</Label>
-            <Input {...register("invoice_number")} placeholder="INV-2026-0001" />
+            <Input {...register("invoice_number")} placeholder="Invoice-#1" />
           </div>
           <div className="space-y-1.5">
-            <Label>Currency</Label>
-            <Input {...register("currency")} placeholder="USD" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Issue Date</Label>
+            <Label>Date</Label>
             <Input type="date" {...register("issue_date")} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Due Date</Label>
-            <Input type="date" {...register("due_date")} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Payment Terms</Label>
-            <Input {...register("payment_terms")} placeholder="Net 30" />
           </div>
         </section>
 
@@ -175,7 +147,6 @@ export default function InvoiceEditorPage() {
             <div className="space-y-1.5"><Label>Address</Label><Textarea {...register("from.address")} placeholder="123 Main St…" rows={2} className="resize-none" /></div>
             <div className="space-y-1.5"><Label>Email</Label><Input {...register("from.email")} type="email" /></div>
             <div className="space-y-1.5"><Label>Phone</Label><Input {...register("from.phone")} /></div>
-            <div className="space-y-1.5"><Label>Tax ID</Label><Input {...register("from.tax_id")} /></div>
           </section>
 
           <section className="space-y-3">
@@ -203,20 +174,18 @@ export default function InvoiceEditorPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-muted-foreground text-xs">
-                  <th className="text-left pb-2 w-[35%]">Description</th>
-                  <th className="text-right pb-2 w-[8%]">Qty</th>
-                  <th className="text-left pb-2 w-[8%] pl-2">Unit</th>
-                  <th className="text-right pb-2 w-[12%]">Price</th>
-                  <th className="text-right pb-2 w-[8%]">Disc %</th>
-                  <th className="text-right pb-2 w-[8%]">Tax %</th>
-                  <th className="text-right pb-2 w-[13%]">Subtotal</th>
-                  <th className="w-[6%]" />
+                  <th className="text-left pb-2 w-[40%]">Description</th>
+                  <th className="text-right pb-2 w-[10%]">Qty</th>
+                  <th className="text-left pb-2 w-[10%] pl-2">Unit</th>
+                  <th className="text-right pb-2 w-[18%]">Unit Price</th>
+                  <th className="text-right pb-2 w-[15%]">Subtotal</th>
+                  <th className="w-[7%]" />
                 </tr>
               </thead>
-              <tbody className="space-y-2">
+              <tbody>
                 {fields.map((field, i) => {
                   const li = lineItems[i] ?? field
-                  const sub = calcSubtotal(+li.quantity, +li.unit_price, +li.discount_pct)
+                  const sub = +li.quantity * +li.unit_price
                   return (
                     <tr key={field.id} className="border-b border-border/40">
                       <td className="py-1.5 pr-2">
@@ -239,20 +208,6 @@ export default function InvoiceEditorPage() {
                           className="h-8 text-right"
                         />
                       </td>
-                      <td className="py-1.5 pr-2">
-                        <Input
-                          {...register(`line_items.${i}.discount_pct`, { valueAsNumber: true })}
-                          type="number" min={0} max={100} step="any"
-                          className="h-8 text-right"
-                        />
-                      </td>
-                      <td className="py-1.5 pr-2">
-                        <Input
-                          {...register(`line_items.${i}.tax_pct`, { valueAsNumber: true })}
-                          type="number" min={0} max={100} step="any"
-                          className="h-8 text-right"
-                        />
-                      </td>
                       <td className="py-1.5 pr-2 text-right font-mono text-xs pt-3">{fmt(sub)}</td>
                       <td className="py-1.5 text-center">
                         <Button
@@ -271,25 +226,13 @@ export default function InvoiceEditorPage() {
             </table>
           </div>
 
-          {/* Totals */}
+          {/* Total */}
           <div className="flex justify-end">
-            <div className="w-64 space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Subtotal</span>
-                <span className="font-mono">{fmt(subtotal)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Discount</span>
-                <span className="font-mono text-red-600">−{fmt(discountTotal)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Tax</span>
-                <span className="font-mono">{fmt(taxTotal)}</span>
-              </div>
+            <div className="w-48 space-y-1 text-sm">
               <Separator />
               <div className="flex justify-between font-semibold text-base">
                 <span>Total</span>
-                <span className="font-mono">{fmt(grandTotal)}</span>
+                <span className="font-mono">{fmt(total)}</span>
               </div>
             </div>
           </div>
@@ -307,17 +250,6 @@ export default function InvoiceEditorPage() {
             className="resize-none"
             onChange={(e) => setValue("notes", e.target.value || null)}
           />
-        </section>
-
-        {/* Payment Info */}
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Payment Info</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5"><Label>Bank Name</Label><Input {...register("payment_info.bank_name")} /></div>
-            <div className="space-y-1.5"><Label>Account Name</Label><Input {...register("payment_info.account_name")} /></div>
-            <div className="space-y-1.5"><Label>Account Number</Label><Input {...register("payment_info.account_number")} /></div>
-            <div className="space-y-1.5"><Label>Routing Number</Label><Input {...register("payment_info.routing_number")} /></div>
-          </div>
         </section>
 
       </form>

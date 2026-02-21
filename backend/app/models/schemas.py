@@ -14,16 +14,7 @@ class BusinessSettingsRead(BaseModel):
     address: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
-    tax_id: Optional[str] = None
     logo_path: Optional[str] = None
-    default_currency: str = "USD"
-    default_tax_pct: float = 0.0
-    payment_terms: str = "Net 30"
-    bank_name: Optional[str] = None
-    account_name: Optional[str] = None
-    account_number: Optional[str] = None
-    routing_number: Optional[str] = None
-    payment_notes: Optional[str] = None
     updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
@@ -34,25 +25,30 @@ class BusinessSettingsUpdate(BaseModel):
     address: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
-    tax_id: Optional[str] = None
     logo_path: Optional[str] = None
-    default_currency: Optional[str] = None
-    default_tax_pct: Optional[float] = None
-    payment_terms: Optional[str] = None
-    bank_name: Optional[str] = None
-    account_name: Optional[str] = None
-    account_number: Optional[str] = None
-    routing_number: Optional[str] = None
-    payment_notes: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
 # Clients
 # ---------------------------------------------------------------------------
 
+class ClientAddressCreate(BaseModel):
+    label: Optional[str] = None
+    address: str
+
+
+class ClientAddressRead(BaseModel):
+    id: int
+    client_id: int
+    label: Optional[str] = None
+    address: str
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class ClientCreate(BaseModel):
     name: str
-    address: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     notes: Optional[str] = None
@@ -61,10 +57,10 @@ class ClientCreate(BaseModel):
 class ClientRead(BaseModel):
     id: int
     name: str
-    address: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     notes: Optional[str] = None
+    addresses: list[ClientAddressRead] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -73,7 +69,6 @@ class ClientRead(BaseModel):
 
 class ClientUpdate(BaseModel):
     name: Optional[str] = None
-    address: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     notes: Optional[str] = None
@@ -125,6 +120,7 @@ class InvoiceRecordRead(BaseModel):
     currency: str = "USD"
     chroma_doc_id: Optional[str] = None
     status: str
+    invoice_json: Optional[str] = None
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
@@ -158,7 +154,6 @@ class ContactInfo(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     logo_path: Optional[str] = None
-    tax_id: Optional[str] = None
 
 
 class ClientContact(BaseModel):
@@ -174,39 +169,23 @@ class LineItem(BaseModel):
     quantity: float = 1.0
     unit: str = "item"
     unit_price: float = 0.0
-    discount_pct: float = 0.0
-    tax_pct: float = 0.0
     subtotal: float = 0.0
 
 
 class Totals(BaseModel):
     subtotal: float = 0.0
-    discount_total: float = 0.0
-    tax_total: float = 0.0
     grand_total: float = 0.0
-
-
-class PaymentInfo(BaseModel):
-    bank_name: Optional[str] = None
-    account_name: Optional[str] = None
-    account_number: Optional[str] = None
-    routing_number: Optional[str] = None
-    additional_instructions: Optional[str] = None
 
 
 class InvoiceData(BaseModel):
     invoice_number: Optional[str] = None
     issue_date: Optional[str] = None
-    due_date: Optional[str] = None
-    currency: str = "USD"
     status: str = "draft"
     from_: ContactInfo = Field(default_factory=ContactInfo, alias="from")
     to: ClientContact = Field(default_factory=ClientContact)
     line_items: list[LineItem] = Field(default_factory=list)
     totals: Totals = Field(default_factory=Totals)
-    payment_terms: Optional[str] = "Net 30"
     notes: Optional[str] = None
-    payment_info: PaymentInfo = Field(default_factory=PaymentInfo)
 
     model_config = {"populate_by_name": True}
 
@@ -225,4 +204,4 @@ class GenerateInvoiceRequest(BaseModel):
 
 class GenerateInvoiceResponse(BaseModel):
     invoice: InvoiceData
-    rag_docs_used: int = 0  # how many historical docs were retrieved
+    rag_docs_used: int = 0

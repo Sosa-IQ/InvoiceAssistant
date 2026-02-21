@@ -1,15 +1,18 @@
 import io
+import json
 import logging
-from datetime import date
+import uuid
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models.db_models import BusinessSettings, InvoiceRecord
+from app.models.db_models import BusinessSettings, Client, InvoiceRecord
 from app.models.schemas import (
     BulkUploadResponse,
     GenerateInvoiceRequest,
@@ -143,6 +146,26 @@ async def list_invoices(
     return [InvoiceRecordRead.model_validate(r) for r in records]
 
 
+@router.get("/{record_id}/pdf")
+async def view_invoice_pdf(
+    record_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """Return the stored PDF for a given invoice record (inline, for browser preview)."""
+    result = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id))
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(404, "Invoice record not found.")
+    path = Path(record.file_path)
+    if not path.exists():
+        raise HTTPException(404, "PDF file not found on disk.")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{record.filename}"'},
+    )
+
+
 @router.post("/generate", response_model=GenerateInvoiceResponse)
 async def generate_invoice(
     request: Request,
@@ -158,8 +181,7 @@ async def generate_invoice(
     # 1. Determine next invoice number from the DB
     result = await db.execute(select(func.count()).select_from(InvoiceRecord))
     total = result.scalar_one()
-    year = date.today().year
-    next_number = f"INV-{year}-{total + 1:04d}"
+    next_number = f"Invoice-#{total + 1}"
 
     # 2. Load business settings (may be empty on first use)
     settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.id == 1))
@@ -182,18 +204,37 @@ async def generate_invoice(
             "payment_notes": settings_row.payment_notes,
         }
 
-    # 3. Retrieve RAG context
+    # 3. Load all clients with their addresses for context injection
+    clients_result = await db.execute(
+        select(Client).options(selectinload(Client.addresses)).order_by(Client.name)
+    )
+    client_context = [
+        {
+            "id": c.id,
+            "name": c.name,
+            "email": c.email,
+            "phone": c.phone,
+            "addresses": [
+                {"id": a.id, "label": a.label, "address": a.address}
+                for a in c.addresses
+            ],
+        }
+        for c in clients_result.scalars().all()
+    ]
+
+    # 4. Retrieve RAG context
     vector_store = request.app.state.vector_store
     rag_svc = RAGService(vector_store)
     rag_context, docs_used = rag_svc.get_context(body.prompt)
 
-    # 4. Call OpenAI
+    # 5. Call OpenAI
     try:
         invoice_data = openai_svc.generate_invoice(
             prompt=body.prompt,
             business_profile=business_profile,
             rag_context=rag_context,
             next_invoice_number=next_number,
+            client_context=client_context,
         )
     except ValueError as exc:
         logger.error("Invoice generation failed: %s", exc)
@@ -236,6 +277,8 @@ async def export_invoice(
     logger.info("Exported PDF saved to %s", pdf_path)
 
     # 5. Upsert invoice_records: update if invoice_number exists, else create
+    invoice_json_str = json.dumps(invoice.model_dump(by_alias=True))
+
     existing = None
     if invoice.invoice_number:
         res = await db.execute(
@@ -249,8 +292,9 @@ async def export_invoice(
         existing.client_name = invoice.to.name
         existing.issue_date = invoice.issue_date
         existing.grand_total = invoice.totals.grand_total
-        existing.currency = invoice.currency
+        existing.currency = "USD"
         existing.status = "exported"
+        existing.invoice_json = invoice_json_str
         await db.commit()
     else:
         record = InvoiceRecord(
@@ -261,8 +305,9 @@ async def export_invoice(
             client_name=invoice.to.name,
             issue_date=invoice.issue_date,
             grand_total=invoice.totals.grand_total,
-            currency=invoice.currency,
+            currency="USD",
             status="exported",
+            invoice_json=invoice_json_str,
         )
         db.add(record)
         await db.commit()
@@ -273,3 +318,107 @@ async def export_invoice(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _invoice_to_text(invoice: InvoiceData) -> str:
+    """Convert structured InvoiceData to a human-readable text for RAG indexing."""
+    lines: list[str] = []
+
+    if invoice.invoice_number:
+        lines.append(f"Invoice: {invoice.invoice_number}")
+    if invoice.issue_date:
+        lines.append(f"Date: {invoice.issue_date}")
+
+    fr = invoice.from_
+    from_parts = [p for p in [fr.name, fr.address, fr.email, fr.phone] if p]
+    if from_parts:
+        lines.append(f"From: {' | '.join(from_parts)}")
+
+    to = invoice.to
+    to_parts = [p for p in [to.name, to.address, to.email, to.phone] if p]
+    if to_parts:
+        lines.append(f"Bill To: {' | '.join(to_parts)}")
+
+    if invoice.line_items:
+        lines.append("\nLine Items:")
+        for item in invoice.line_items:
+            lines.append(
+                f"  - {item.description}: {item.quantity} {item.unit} "
+                f"× ${item.unit_price:.2f} = ${item.subtotal:.2f}"
+            )
+
+    lines.append(f"\nTotal: ${invoice.totals.grand_total:.2f}")
+
+    if invoice.notes:
+        lines.append(f"\nNotes: {invoice.notes}")
+
+    return "\n".join(lines)
+
+
+@router.post("/{record_id}/index", response_model=InvoiceRecordRead)
+async def index_invoice(
+    record_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> InvoiceRecordRead:
+    """
+    Add (or re-index) an exported invoice into the RAG vector store.
+    Uses the stored invoice JSON instead of re-parsing the PDF.
+    """
+    res = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id))
+    record = res.scalar_one_or_none()
+    if not record:
+        raise HTTPException(404, "Invoice record not found.")
+    if not record.invoice_json:
+        raise HTTPException(422, "No invoice data available for this record. Re-export the invoice to enable indexing.")
+
+    # Parse the stored JSON back into InvoiceData
+    invoice = InvoiceData.model_validate(json.loads(record.invoice_json))
+    text = _invoice_to_text(invoice)
+
+    vector_store = request.app.state.vector_store
+
+    # Remove old vectors if previously indexed
+    if record.chroma_doc_id:
+        vector_store.delete_document(record.chroma_doc_id)
+        logger.info("Removed old vectors for record id=%d (doc_id=%s)", record_id, record.chroma_doc_id)
+
+    doc_id = str(uuid.uuid4())
+    chunks = parser.chunk_text(text)
+    vector_store.add_document(doc_id, chunks, {"filename": record.filename})
+
+    record.chroma_doc_id = doc_id
+    await db.commit()
+    await db.refresh(record)
+
+    logger.info("Indexed generated invoice record id=%d as doc_id=%s (%d chunks)", record_id, doc_id, len(chunks))
+    return InvoiceRecordRead.model_validate(record)
+
+
+@router.delete("/{record_id}", status_code=204)
+async def delete_invoice(
+    record_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete an invoice record, its PDF file, and any ChromaDB vectors."""
+    res = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id))
+    record = res.scalar_one_or_none()
+    if not record:
+        raise HTTPException(404, "Invoice record not found.")
+
+    # Remove vectors from ChromaDB if indexed
+    if record.chroma_doc_id:
+        vector_store = request.app.state.vector_store
+        vector_store.delete_document(record.chroma_doc_id)
+        logger.info("Removed vectors for doc_id=%s", record.chroma_doc_id)
+
+    # Delete the PDF file from disk (best-effort)
+    pdf_path = Path(record.file_path)
+    if pdf_path.exists():
+        pdf_path.unlink()
+        logger.info("Deleted PDF file %s", pdf_path)
+
+    await db.delete(record)
+    await db.commit()
+    logger.info("Deleted invoice record id=%d", record_id)
