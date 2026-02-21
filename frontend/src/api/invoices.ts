@@ -38,3 +38,12 @@ export async function openInvoicePdf(recordId: number): Promise<void> {
   window.open(url, "_blank")
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
+
+export async function indexInvoice(recordId: number): Promise<InvoiceRecord> {
+  const { data } = await api.post<InvoiceRecord>(`/api/invoices/${recordId}/index`)
+  return data
+}
+
+export async function deleteInvoice(recordId: number): Promise<void> {
+  await api.delete(`/api/invoices/${recordId}`)
+}

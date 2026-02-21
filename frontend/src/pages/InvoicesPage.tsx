@@ -1,7 +1,7 @@
 import { useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Upload, FileText, CheckCircle, XCircle, Loader2, Eye } from "lucide-react"
+import { Upload, FileText, CheckCircle, XCircle, Loader2, Eye, BookOpen, RefreshCw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { listInvoices, uploadInvoices, openInvoicePdf } from "@/api/invoices"
+import { listInvoices, uploadInvoices, openInvoicePdf, indexInvoice, deleteInvoice } from "@/api/invoices"
 import type { InvoiceRecord } from "@/types/invoice"
 
 const STATUS_COLORS: Record<string, string> = {
@@ -37,6 +37,8 @@ export default function InvoicesPage() {
   const [uploading, setUploading] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [viewingId, setViewingId] = useState<number | null>(null)
+  const [indexingId, setIndexingId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
   const { data: records = [], isLoading } = useQuery<InvoiceRecord[]>({
     queryKey: ["invoices"],
@@ -78,6 +80,34 @@ export default function InvoicesPage() {
       toast.error("Could not open PDF.")
     } finally {
       setViewingId(null)
+    }
+  }
+
+  async function handleDelete(r: InvoiceRecord) {
+    if (!confirm(`Delete "${r.filename}"? This cannot be undone.`)) return
+    setDeletingId(r.id)
+    try {
+      await deleteInvoice(r.id)
+      toast.success("Invoice deleted.")
+      queryClient.invalidateQueries({ queryKey: ["invoices"] })
+    } catch {
+      toast.error("Failed to delete invoice.")
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  async function handleIndex(r: InvoiceRecord) {
+    const isReindex = !!r.chroma_doc_id
+    setIndexingId(r.id)
+    try {
+      await indexInvoice(r.id)
+      toast.success(isReindex ? "Invoice re-indexed." : "Invoice added to training set.")
+      queryClient.invalidateQueries({ queryKey: ["invoices"] })
+    } catch {
+      toast.error("Indexing failed.")
+    } finally {
+      setIndexingId(null)
     }
   }
 
@@ -144,7 +174,7 @@ export default function InvoicesPage() {
                 <TableHead>Date</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-16" />
+                <TableHead className="w-20" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -163,20 +193,61 @@ export default function InvoicesPage() {
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
-                    {VIEWABLE.has(r.status) && (
+                    <div className="flex items-center justify-end gap-0.5">
+                      {/* View PDF button */}
+                      {VIEWABLE.has(r.status) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => handleView(r)}
+                          disabled={viewingId === r.id}
+                          title="View PDF"
+                        >
+                          {viewingId === r.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Eye className="h-3.5 w-3.5" />}
+                        </Button>
+                      )}
+
+                      {/* Index / Re-index button — only for generated invoices */}
+                      {r.source === "generated" && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={`h-7 w-7 ${r.chroma_doc_id ? "text-green-600 hover:text-green-700" : "text-muted-foreground"}`}
+                          onClick={() => handleIndex(r)}
+                          disabled={!r.invoice_json || indexingId === r.id}
+                          title={
+                            !r.invoice_json
+                              ? "Re-export this invoice to enable indexing"
+                              : r.chroma_doc_id
+                              ? "Re-index (already in training set)"
+                              : "Add to training set"
+                          }
+                        >
+                          {indexingId === r.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : r.chroma_doc_id
+                            ? <RefreshCw className="h-3.5 w-3.5" />
+                            : <BookOpen className="h-3.5 w-3.5" />}
+                        </Button>
+                      )}
+
+                      {/* Delete button */}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7"
-                        onClick={() => handleView(r)}
-                        disabled={viewingId === r.id}
-                        title="View PDF"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        onClick={() => handleDelete(r)}
+                        disabled={deletingId === r.id}
+                        title="Delete invoice"
                       >
-                        {viewingId === r.id
+                        {deletingId === r.id
                           ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          : <Eye className="h-3.5 w-3.5" />}
+                          : <Trash2 className="h-3.5 w-3.5" />}
                       </Button>
-                    )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

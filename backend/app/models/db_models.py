@@ -94,4 +94,5 @@ class InvoiceRecord(Base):
     currency: Mapped[str] = mapped_column(String, default="USD")
     chroma_doc_id: Mapped[str | None] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, default="draft")
+    invoice_json: Mapped[str | None] = mapped_column(Text)  # full InvoiceData JSON, stored at export time
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

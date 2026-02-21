@@ -120,6 +120,7 @@ class InvoiceRecordRead(BaseModel):
     currency: str = "USD"
     chroma_doc_id: Optional[str] = None
     status: str
+    invoice_json: Optional[str] = None
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

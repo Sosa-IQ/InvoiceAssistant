@@ -52,6 +52,7 @@ export interface InvoiceRecord {
   currency: string
   chroma_doc_id: string | null
   status: string
+  invoice_json: string | null
   created_at: string | null
 }
 

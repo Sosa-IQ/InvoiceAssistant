@@ -1,5 +1,7 @@
 import io
+import json
 import logging
+import uuid
 from pathlib import Path
 from typing import Annotated
 
@@ -275,6 +277,8 @@ async def export_invoice(
     logger.info("Exported PDF saved to %s", pdf_path)
 
     # 5. Upsert invoice_records: update if invoice_number exists, else create
+    invoice_json_str = json.dumps(invoice.model_dump(by_alias=True))
+
     existing = None
     if invoice.invoice_number:
         res = await db.execute(
@@ -290,6 +294,7 @@ async def export_invoice(
         existing.grand_total = invoice.totals.grand_total
         existing.currency = "USD"
         existing.status = "exported"
+        existing.invoice_json = invoice_json_str
         await db.commit()
     else:
         record = InvoiceRecord(
@@ -302,6 +307,7 @@ async def export_invoice(
             grand_total=invoice.totals.grand_total,
             currency="USD",
             status="exported",
+            invoice_json=invoice_json_str,
         )
         db.add(record)
         await db.commit()
@@ -312,3 +318,107 @@ async def export_invoice(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _invoice_to_text(invoice: InvoiceData) -> str:
+    """Convert structured InvoiceData to a human-readable text for RAG indexing."""
+    lines: list[str] = []
+
+    if invoice.invoice_number:
+        lines.append(f"Invoice: {invoice.invoice_number}")
+    if invoice.issue_date:
+        lines.append(f"Date: {invoice.issue_date}")
+
+    fr = invoice.from_
+    from_parts = [p for p in [fr.name, fr.address, fr.email, fr.phone] if p]
+    if from_parts:
+        lines.append(f"From: {' | '.join(from_parts)}")
+
+    to = invoice.to
+    to_parts = [p for p in [to.name, to.address, to.email, to.phone] if p]
+    if to_parts:
+        lines.append(f"Bill To: {' | '.join(to_parts)}")
+
+    if invoice.line_items:
+        lines.append("\nLine Items:")
+        for item in invoice.line_items:
+            lines.append(
+                f"  - {item.description}: {item.quantity} {item.unit} "
+                f"× ${item.unit_price:.2f} = ${item.subtotal:.2f}"
+            )
+
+    lines.append(f"\nTotal: ${invoice.totals.grand_total:.2f}")
+
+    if invoice.notes:
+        lines.append(f"\nNotes: {invoice.notes}")
+
+    return "\n".join(lines)
+
+
+@router.post("/{record_id}/index", response_model=InvoiceRecordRead)
+async def index_invoice(
+    record_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> InvoiceRecordRead:
+    """
+    Add (or re-index) an exported invoice into the RAG vector store.
+    Uses the stored invoice JSON instead of re-parsing the PDF.
+    """
+    res = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id))
+    record = res.scalar_one_or_none()
+    if not record:
+        raise HTTPException(404, "Invoice record not found.")
+    if not record.invoice_json:
+        raise HTTPException(422, "No invoice data available for this record. Re-export the invoice to enable indexing.")
+
+    # Parse the stored JSON back into InvoiceData
+    invoice = InvoiceData.model_validate(json.loads(record.invoice_json))
+    text = _invoice_to_text(invoice)
+
+    vector_store = request.app.state.vector_store
+
+    # Remove old vectors if previously indexed
+    if record.chroma_doc_id:
+        vector_store.delete_document(record.chroma_doc_id)
+        logger.info("Removed old vectors for record id=%d (doc_id=%s)", record_id, record.chroma_doc_id)
+
+    doc_id = str(uuid.uuid4())
+    chunks = parser.chunk_text(text)
+    vector_store.add_document(doc_id, chunks, {"filename": record.filename})
+
+    record.chroma_doc_id = doc_id
+    await db.commit()
+    await db.refresh(record)
+
+    logger.info("Indexed generated invoice record id=%d as doc_id=%s (%d chunks)", record_id, doc_id, len(chunks))
+    return InvoiceRecordRead.model_validate(record)
+
+
+@router.delete("/{record_id}", status_code=204)
+async def delete_invoice(
+    record_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete an invoice record, its PDF file, and any ChromaDB vectors."""
+    res = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id))
+    record = res.scalar_one_or_none()
+    if not record:
+        raise HTTPException(404, "Invoice record not found.")
+
+    # Remove vectors from ChromaDB if indexed
+    if record.chroma_doc_id:
+        vector_store = request.app.state.vector_store
+        vector_store.delete_document(record.chroma_doc_id)
+        logger.info("Removed vectors for doc_id=%s", record.chroma_doc_id)
+
+    # Delete the PDF file from disk (best-effort)
+    pdf_path = Path(record.file_path)
+    if pdf_path.exists():
+        pdf_path.unlink()
+        logger.info("Deleted PDF file %s", pdf_path)
+
+    await db.delete(record)
+    await db.commit()
+    logger.info("Deleted invoice record id=%d", record_id)
