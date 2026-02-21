@@ -1,8 +1,9 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useLocation, useNavigate, useBlocker, type BlockerFunction } from "react-router-dom"
 import { useForm, useFieldArray, useWatch } from "react-hook-form"
-import { Plus, Trash2, Download } from "lucide-react"
+import { Plus, Trash2, Download, Loader2 } from "lucide-react"
 import { toast } from "sonner"
+import { exportInvoice } from "@/api/invoices"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -35,6 +36,7 @@ function fmt(n: number) {
 export default function InvoiceEditorPage() {
   const location = useLocation()
   const navigate = useNavigate()
+  const [isExporting, setIsExporting] = useState(false)
 
   // Load from router state (just navigated from generate) or localStorage draft
   const initialInvoice: InvoiceData | null =
@@ -101,10 +103,23 @@ export default function InvoiceEditorPage() {
     localStorage.removeItem(DRAFT_KEY)
   }
 
-  function onExport(data: InvoiceData) {
-    // Phase 4: POST /api/invoices/export
-    void data
-    toast.info("PDF export coming in Phase 4.")
+  async function onExport(data: InvoiceData) {
+    setIsExporting(true)
+    try {
+      const blob = await exportInvoice(data)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${data.invoice_number || "invoice"}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+      clearDraft()
+      toast.success("PDF downloaded.")
+    } catch {
+      toast.error("Export failed. Check that the backend is running.")
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   return (
@@ -115,8 +130,10 @@ export default function InvoiceEditorPage() {
           <Button variant="outline" size="sm" onClick={() => { clearDraft(); navigate("/invoices") }}>
             Discard
           </Button>
-          <Button size="sm" onClick={handleSubmit(onExport)}>
-            <Download className="mr-1.5 h-4 w-4" />
+          <Button size="sm" onClick={handleSubmit(onExport)} disabled={isExporting}>
+            {isExporting
+              ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              : <Download className="mr-1.5 h-4 w-4" />}
             Export PDF
           </Button>
         </div>

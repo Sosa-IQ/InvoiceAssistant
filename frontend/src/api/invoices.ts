@@ -1,6 +1,7 @@
 import type {
   BulkUploadResponse,
   GenerateInvoiceResponse,
+  InvoiceData,
   InvoiceRecord,
 } from "@/types/invoice"
 import api from "./client"
@@ -19,5 +20,12 @@ export async function listInvoices(): Promise<InvoiceRecord[]> {
 
 export async function generateInvoice(prompt: string): Promise<GenerateInvoiceResponse> {
   const { data } = await api.post<GenerateInvoiceResponse>("/api/invoices/generate", { prompt })
+  return data
+}
+
+export async function exportInvoice(invoice: InvoiceData): Promise<Blob> {
+  const { data } = await api.post<Blob>("/api/invoices/export", invoice, {
+    responseType: "blob",
+  })
   return data
 }

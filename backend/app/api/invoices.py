@@ -1,8 +1,10 @@
+import io
 import logging
 from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,10 +14,12 @@ from app.models.schemas import (
     BulkUploadResponse,
     GenerateInvoiceRequest,
     GenerateInvoiceResponse,
+    InvoiceData,
     InvoiceRecordRead,
     UploadResult,
 )
 from app.services.openai_service import OpenAIService
+from app.services.pdf_generator import PDFGeneratorService
 from app.services.pdf_parser import PDFParserService
 from app.services.rag_service import RAGService
 from app.services.storage import StorageService
@@ -26,6 +30,7 @@ router = APIRouter(prefix="/api/invoices", tags=["invoices"])
 storage = StorageService()
 parser = PDFParserService()
 openai_svc = OpenAIService()
+pdf_gen = PDFGeneratorService()
 
 
 @router.post("/upload", response_model=BulkUploadResponse)
@@ -196,3 +201,75 @@ async def generate_invoice(
 
     logger.info("Generated invoice %s using %d RAG docs.", next_number, docs_used)
     return GenerateInvoiceResponse(invoice=invoice_data, rag_docs_used=docs_used)
+
+
+@router.post("/export")
+async def export_invoice(
+    body: InvoiceData,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """
+    Accept an InvoiceData payload, recalculate totals server-side, render to PDF,
+    save to disk, upsert the invoice_records row, and return the PDF as a download.
+    """
+    # 1. Authoritative total recalculation
+    invoice = pdf_gen.recalculate_totals(body)
+
+    # 2. Load logo path from settings (if configured)
+    settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.id == 1))
+    settings_row = settings_result.scalar_one_or_none()
+    logo_path = settings_row.logo_path if settings_row else None
+
+    # 3. Render PDF
+    try:
+        pdf_bytes = pdf_gen.render_pdf(invoice, logo_path=logo_path)
+    except Exception as exc:
+        logger.error("PDF rendering failed: %s", exc, exc_info=True)
+        raise HTTPException(500, detail=f"PDF rendering failed: {exc}")
+
+    # 4. Build filename and save to disk
+    inv_num = (invoice.invoice_number or "invoice").replace("/", "-").replace(" ", "_")
+    filename = f"{inv_num}.pdf"
+    invoices_dir = storage.get_invoices_dir()
+    pdf_path = invoices_dir / filename
+    pdf_path.write_bytes(pdf_bytes)
+    logger.info("Exported PDF saved to %s", pdf_path)
+
+    # 5. Upsert invoice_records: update if invoice_number exists, else create
+    existing = None
+    if invoice.invoice_number:
+        res = await db.execute(
+            select(InvoiceRecord).where(InvoiceRecord.invoice_number == invoice.invoice_number)
+        )
+        existing = res.scalar_one_or_none()
+
+    if existing:
+        existing.file_path = str(pdf_path)
+        existing.filename = filename
+        existing.client_name = invoice.to.name
+        existing.issue_date = invoice.issue_date
+        existing.grand_total = invoice.totals.grand_total
+        existing.currency = invoice.currency
+        existing.status = "exported"
+        await db.commit()
+    else:
+        record = InvoiceRecord(
+            filename=filename,
+            file_path=str(pdf_path),
+            source="generated",
+            invoice_number=invoice.invoice_number,
+            client_name=invoice.to.name,
+            issue_date=invoice.issue_date,
+            grand_total=invoice.totals.grand_total,
+            currency=invoice.currency,
+            status="exported",
+        )
+        db.add(record)
+        await db.commit()
+
+    # 6. Stream the PDF back
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
