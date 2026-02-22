@@ -48,19 +48,19 @@ export default function NewInvoicePage() {
       const { width, height } = canvas
       ctx.clearRect(0, 0, width, height)
 
-      const barCount = 20
+      // Symmetric layout: compute half the bars, mirror each one
+      // Lower freq bins (louder for voice) land at the center; higher freqs at edges
+      const halfCount = 10
+      const barCount = halfCount * 2
       const gap = 3
       const barWidth = (width - gap * (barCount - 1)) / barCount
       const centerY = height / 2
 
       ctx.fillStyle = "rgba(255,255,255,0.92)"
-      for (let i = 0; i < barCount; i++) {
-        const sample = dataArray[Math.floor((i * dataArray.length) / barCount)]
-        const barHeight = Math.max(4, (sample / 255) * height * 0.78)
-        const x = i * (barWidth + gap)
+
+      function drawBar(x: number, barHeight: number) {
         const y = centerY - barHeight / 2
         const r = barWidth / 2
-        // Rounded bar
         ctx.beginPath()
         ctx.moveTo(x + r, y)
         ctx.arcTo(x + barWidth, y, x + barWidth, y + barHeight, r)
@@ -69,6 +69,15 @@ export default function NewInvoicePage() {
         ctx.arcTo(x, y, x + barWidth, y, r)
         ctx.closePath()
         ctx.fill()
+      }
+
+      for (let i = 0; i < halfCount; i++) {
+        const sample = dataArray[Math.floor((i * dataArray.length) / halfCount)]
+        const barHeight = Math.max(4, (sample / 255) * height * 0.78)
+        // Right of center: bar slot (halfCount + i)
+        drawBar((halfCount + i) * (barWidth + gap), barHeight)
+        // Left of center: mirrored bar slot (halfCount - 1 - i)
+        drawBar((halfCount - 1 - i) * (barWidth + gap), barHeight)
       }
     }
 
