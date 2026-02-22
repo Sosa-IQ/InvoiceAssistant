@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     )
 
     openai_api_key: str = ""
+    speechmatics_api_key: str = ""
     data_dir: Path = Path("./data")
     chroma_dir: Path = Path("./data/chroma")
     db_path: Path = Path("./data/app.db")
