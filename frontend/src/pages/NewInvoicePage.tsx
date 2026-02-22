@@ -123,7 +123,7 @@ export default function NewInvoicePage() {
             toast.success("Voice transcribed.")
           }
         } catch {
-          toast.error("Transcription failed. Check your Speechmatics API key.")
+          toast.error("Transcription failed")
         } finally {
           setTranscribing(false)
         }
