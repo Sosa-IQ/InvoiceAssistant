@@ -78,6 +78,7 @@ Rules:
 - Use null (never "") for unknown optional fields
 - Set invoice_number to "{next_invoice_number}" exactly — do not change it
 - Populate the "from" block from the BUSINESS PROFILE below
+- If the user's prompt is not in English, translate invoice text fields to English before returning JSON
 {single_client_rule}- If the prompt mentions a client name or partial address, match to the CLIENT DATA below
 - Set to.client_id to the matched client's id, and copy their name, email, phone into the "to" block
 - Match partial addresses (e.g. "21 Wake Ave") to the closest full address in the client's addresses list; always use the FULL stored address string, never the partial text from the prompt
