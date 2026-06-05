@@ -1,4 +1,4 @@
-import type { CatalogItem } from "@/types/invoice"
+import type { CatalogItem, CatalogRecommendation } from "@/types/invoice"
 import api from "./client"
 
 export async function listCatalog(search?: string): Promise<CatalogItem[]> {
@@ -18,4 +18,9 @@ export async function updateCatalogItem(id: number, body: Partial<Omit<CatalogIt
 
 export async function deleteCatalogItem(id: number): Promise<void> {
   await api.delete(`/api/catalog/${id}`)
+}
+
+export async function recommendCatalogItems(): Promise<CatalogRecommendation[]> {
+  const { data } = await api.post<CatalogRecommendation[]>("/api/catalog/recommendations")
+  return data
 }

@@ -104,6 +104,16 @@ class CatalogItemUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+class CatalogRecommendationRead(BaseModel):
+    description: str
+    unit_price: float
+    unit: str
+    notes: Optional[str] = None
+    confidence: float = 0.0
+    reason: str
+    invoice_examples: list[str] = []
+
+
 # ---------------------------------------------------------------------------
 # Invoice Records (history list)
 # ---------------------------------------------------------------------------

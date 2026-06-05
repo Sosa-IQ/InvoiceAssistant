@@ -55,12 +55,14 @@ def _build_system_prompt(
     rag_context: str,
     next_invoice_number: str,
     client_context: list[dict],
+    catalog_context: list[dict],
 ) -> str:
     today = date.today().isoformat()
     schema_json = json.dumps(_SCHEMA_EXAMPLE, indent=2)
     profile_json = json.dumps(business_profile, indent=2)
     rag_block = rag_context if rag_context else "(no historical invoices available)"
     client_json = json.dumps(client_context, indent=2) if client_context else "[]"
+    catalog_json = json.dumps(catalog_context, indent=2) if catalog_context else "[]"
 
     single_client_rule = ""
     if len(client_context) == 1:
@@ -84,6 +86,8 @@ Rules:
 - Match partial addresses (e.g. "21 Wake Ave") to the closest full address in the client's addresses list; always use the FULL stored address string, never the partial text from the prompt
 - If the client has only one address, use it automatically
 - If the client has multiple addresses and none match the prompt, leave to.address as null
+- Use the CATALOG ITEMS below as preferred references for line item descriptions, units, and unit prices when the user's prompt appears to match a saved catalog item
+- Do not invent catalog-only work that the user did not request
 - If the prompt contains work done on multiple distinct dates, prefix each line item description with its date in "M/DD:" format (e.g. "2/16: Remove mold from bathroom"). If only one date is mentioned, do NOT add a date prefix — just use the description as-is
 
 SCHEMA:
@@ -94,6 +98,9 @@ BUSINESS PROFILE:
 
 CLIENT DATA:
 {client_json}
+
+CATALOG ITEMS:
+{catalog_json}
 
 HISTORICAL INVOICE CONTEXT:
 {rag_block}"""
@@ -119,6 +126,7 @@ class OpenAIService:
         rag_context: str,
         next_invoice_number: str,
         client_context: list[dict] | None = None,
+        catalog_context: list[dict] | None = None,
     ) -> InvoiceData:
         """
         Call gpt-4o-mini and return a validated InvoiceData.
@@ -132,6 +140,7 @@ class OpenAIService:
             rag_context=rag_context,
             next_invoice_number=next_invoice_number,
             client_context=client_context or [],
+            catalog_context=catalog_context or [],
         )
 
         last_error: Exception | None = None

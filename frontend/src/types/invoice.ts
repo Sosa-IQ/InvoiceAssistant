@@ -104,6 +104,16 @@ export interface CatalogItem {
   updated_at: string | null
 }
 
+export interface CatalogRecommendation {
+  description: string
+  unit_price: number
+  unit: string
+  notes: string | null
+  confidence: number
+  reason: string
+  invoice_examples: string[]
+}
+
 export interface BusinessSettings {
   id: number
   name: string | null

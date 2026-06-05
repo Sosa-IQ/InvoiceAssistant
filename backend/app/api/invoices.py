@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models.db_models import BusinessSettings, Client, InvoiceRecord
+from app.models.db_models import BusinessSettings, CatalogItem, Client, InvoiceRecord
 from app.models.schemas import (
     BulkUploadResponse,
     GenerateInvoiceRequest,
@@ -263,12 +263,25 @@ async def generate_invoice(
         for c in clients_result.scalars().all()
     ]
 
-    # 4. Retrieve RAG context
+    # 4. Load catalog items for reusable line item context
+    catalog_result = await db.execute(select(CatalogItem).order_by(CatalogItem.description))
+    catalog_context = [
+        {
+            "id": item.id,
+            "description": item.description,
+            "unit": item.unit,
+            "unit_price": item.unit_price,
+            "notes": item.notes,
+        }
+        for item in catalog_result.scalars().all()
+    ]
+
+    # 5. Retrieve RAG context
     vector_store = request.app.state.vector_store
     rag_svc = RAGService(vector_store)
     rag_context, docs_used = rag_svc.get_context(body.prompt)
 
-    # 5. Call OpenAI
+    # 6. Call OpenAI
     try:
         invoice_data = openai_svc.generate_invoice(
             prompt=body.prompt,
@@ -276,6 +289,7 @@ async def generate_invoice(
             rag_context=rag_context,
             next_invoice_number=next_number,
             client_context=client_context,
+            catalog_context=catalog_context,
         )
     except ValueError as exc:
         logger.error("Invoice generation failed: %s", exc)
