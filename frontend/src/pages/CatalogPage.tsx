@@ -233,7 +233,7 @@ export default function CatalogPage() {
                         <div className="font-medium leading-snug">{item.description}</div>
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span>{item.unit}</span>
-                          <span className="font-mono">{fmt(item.unit_price)}</span>
+                          {item.unit_price > 0 && <span className="font-mono">{fmt(item.unit_price)}</span>}
                           <Badge variant="secondary">{Math.round(item.confidence * 100)}%</Badge>
                         </div>
                       </div>

@@ -1,5 +1,6 @@
 import logging
 import json
+import re
 from collections import Counter, defaultdict
 from typing import TypeVar
 
@@ -20,10 +21,69 @@ from app.models.schemas import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 T = TypeVar("T")
+ACTION_PREFIXES = {
+    "complete",
+    "completed",
+    "finish",
+    "finished",
+    "finishing",
+}
+STOP_WORDS = ACTION_PREFIXES | {
+    "and",
+    "for",
+    "of",
+    "on",
+    "the",
+    "to",
+}
+VERB_REPLACEMENTS = {
+    "installed": "install",
+    "installing": "install",
+    "repairs": "repair",
+    "repaired": "repair",
+    "repairing": "repair",
+    "removed": "remove",
+    "removing": "remove",
+    "painted": "paint",
+    "painting": "paint",
+    "cleaned": "clean",
+    "cleaning": "clean",
+}
 
 
 def _normalize_description(value: str) -> str:
     return " ".join(value.strip().lower().split())
+
+
+def _clean_recommendation_description(value: str) -> str:
+    text = value.strip()
+    text = re.sub(r"^\s*\d{1,2}/\d{1,2}(?:/\d{2,4})?\s*[:\-–—]?\s*", "", text)
+    text = re.sub(r"\s+", " ", text)
+
+    words = text.split()
+    while words and words[0].lower().strip(".,:;") in ACTION_PREFIXES:
+        words.pop(0)
+
+    cleaned_words = [
+        VERB_REPLACEMENTS.get(word.lower().strip(".,:;"), word)
+        for word in words
+    ]
+    cleaned = " ".join(cleaned_words).strip(" .,;:")
+    return cleaned[:1].upper() + cleaned[1:] if cleaned else ""
+
+
+def _recommendation_group_key(value: str) -> str:
+    cleaned = _normalize_description(_clean_recommendation_description(value))
+    words = [
+        VERB_REPLACEMENTS.get(word.strip(".,:;"), word.strip(".,:;"))
+        for word in cleaned.split()
+    ]
+    keywords = [word for word in words if word and word not in STOP_WORDS]
+    return " ".join(keywords)
+
+
+def _is_hourly_unit(value: str) -> bool:
+    return _normalize_description(value) in {"hour", "hours", "hr", "hrs", "hourly"}
 
 
 def _most_common_value(values: list[T], fallback: T) -> T:
@@ -71,7 +131,7 @@ async def recommend_catalog_items(
     """
     catalog_result = await db.execute(select(CatalogItem.description))
     existing_descriptions = {
-        _normalize_description(description)
+        _recommendation_group_key(description)
         for description in catalog_result.scalars().all()
     }
 
@@ -99,18 +159,19 @@ async def recommend_catalog_items(
 
         invoice_label = invoice.invoice_number or record.filename
         for line_item in invoice.line_items:
-            description = line_item.description.strip()
+            description = _clean_recommendation_description(line_item.description)
             if not description:
                 continue
 
-            key = _normalize_description(description)
+            key = _recommendation_group_key(description)
             if key in existing_descriptions:
                 continue
 
             bucket = grouped[key]
             bucket["descriptions"].append(description)
             bucket["units"].append(line_item.unit or "item")
-            bucket["prices"].append(round(float(line_item.unit_price or 0.0), 2))
+            if _is_hourly_unit(line_item.unit or ""):
+                bucket["prices"].append(round(float(line_item.unit_price or 0.0), 2))
             if invoice_label and invoice_label not in bucket["invoice_examples"]:
                 bucket["invoice_examples"].append(invoice_label)
 
@@ -122,12 +183,12 @@ async def recommend_catalog_items(
 
         description = _most_common_value(bucket["descriptions"], "")
         unit = _most_common_value(bucket["units"], "item")
-        unit_price = _most_common_value(bucket["prices"], 0.0)
+        unit_price = _most_common_value(bucket["prices"], 0.0) if _is_hourly_unit(unit) else 0.0
         examples = bucket["invoice_examples"][:3]
         confidence = min(0.95, 0.45 + (count * 0.1))
         reason = (
             f"Found {count} invoice line item"
-            f"{'' if count == 1 else 's'} with this description."
+            f"{'' if count == 1 else 's'} with similar wording."
         )
 
         recommendations.append(
