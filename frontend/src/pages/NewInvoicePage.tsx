@@ -1,20 +1,22 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Loader2, Mic, Sparkles } from "lucide-react"
+import { FilePenLine, Loader2, Mic, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { generateInvoice } from "@/api/invoices"
+import { createInvoiceDraft, generateInvoice } from "@/api/invoices"
 import { transcribeAudio } from "@/api/voice"
 
 const MAX_CHARS = 2000
 const BTN_SIZE = 112 // px — matches w-28 h-28
+const DRAFT_KEY = "invoice_draft"
 
 export default function NewInvoicePage() {
   const navigate = useNavigate()
   const [prompt, setPrompt] = useState("")
   const [loading, setLoading] = useState(false)
+  const [manualLoading, setManualLoading] = useState(false)
   const [recording, setRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
 
@@ -58,26 +60,26 @@ export default function NewInvoicePage() {
 
       ctx.fillStyle = "rgba(255,255,255,0.92)"
 
-      function drawBar(x: number, barHeight: number) {
+      function drawBar(context: CanvasRenderingContext2D, x: number, barHeight: number) {
         const y = centerY - barHeight / 2
         const r = barWidth / 2
-        ctx.beginPath()
-        ctx.moveTo(x + r, y)
-        ctx.arcTo(x + barWidth, y, x + barWidth, y + barHeight, r)
-        ctx.arcTo(x + barWidth, y + barHeight, x, y + barHeight, r)
-        ctx.arcTo(x, y + barHeight, x, y, r)
-        ctx.arcTo(x, y, x + barWidth, y, r)
-        ctx.closePath()
-        ctx.fill()
+        context.beginPath()
+        context.moveTo(x + r, y)
+        context.arcTo(x + barWidth, y, x + barWidth, y + barHeight, r)
+        context.arcTo(x + barWidth, y + barHeight, x, y + barHeight, r)
+        context.arcTo(x, y + barHeight, x, y, r)
+        context.arcTo(x, y, x + barWidth, y, r)
+        context.closePath()
+        context.fill()
       }
 
       for (let i = 0; i < halfCount; i++) {
         const sample = dataArray[Math.floor((i * dataArray.length) / halfCount)]
         const barHeight = Math.max(4, (sample / 255) * height * 0.78)
         // Right of center: bar slot (halfCount + i)
-        drawBar((halfCount + i) * (barWidth + gap), barHeight)
+        drawBar(ctx, (halfCount + i) * (barWidth + gap), barHeight)
         // Left of center: mirrored bar slot (halfCount - 1 - i)
-        drawBar((halfCount - 1 - i) * (barWidth + gap), barHeight)
+        drawBar(ctx, (halfCount - 1 - i) * (barWidth + gap), barHeight)
       }
     }
 
@@ -162,6 +164,19 @@ export default function NewInvoicePage() {
     }
   }
 
+  async function handleCreateManually() {
+    setManualLoading(true)
+    try {
+      const invoice = await createInvoiceDraft()
+      localStorage.removeItem(DRAFT_KEY)
+      navigate("/invoices/editor", { state: { invoice } })
+    } catch {
+      toast.error("Could not create a manual invoice draft.")
+    } finally {
+      setManualLoading(false)
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-6">
@@ -178,7 +193,7 @@ export default function NewInvoicePage() {
         <button
           type="button"
           onClick={recording ? stopRecording : startRecording}
-          disabled={loading || transcribing}
+          disabled={loading || manualLoading || transcribing}
           title={recording ? "Click to stop" : "Click to record"}
           className={[
             "relative w-28 h-28 rounded-full overflow-hidden",
@@ -232,7 +247,7 @@ export default function NewInvoicePage() {
 
       <Button
         onClick={handleGenerate}
-        disabled={!prompt.trim() || loading}
+        disabled={!prompt.trim() || loading || manualLoading}
         className="w-full"
         size="lg"
       >
@@ -245,6 +260,25 @@ export default function NewInvoicePage() {
           <>
             <Sparkles className="mr-2 h-4 w-4" />
             Generate Invoice
+          </>
+        )}
+      </Button>
+      <Button
+        onClick={handleCreateManually}
+        disabled={loading || manualLoading || transcribing}
+        className="w-full"
+        size="lg"
+        variant="outline"
+      >
+        {manualLoading ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Creating…
+          </>
+        ) : (
+          <>
+            <FilePenLine className="mr-2 h-4 w-4" />
+            Create Manually
           </>
         )}
       </Button>

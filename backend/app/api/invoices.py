@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import uuid
+from datetime import date
 from pathlib import Path
 from typing import Annotated
 
@@ -34,6 +35,17 @@ storage = StorageService()
 parser = PDFParserService()
 openai_svc = OpenAIService()
 pdf_gen = PDFGeneratorService()
+
+
+async def _next_invoice_number(db: AsyncSession) -> str:
+    result = await db.execute(select(func.count()).select_from(InvoiceRecord))
+    total = result.scalar_one()
+    return f"Invoice-#{total + 1}"
+
+
+async def _business_settings(db: AsyncSession) -> BusinessSettings | None:
+    settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.id == 1))
+    return settings_result.scalar_one_or_none()
 
 
 @router.post("/upload", response_model=BulkUploadResponse)
@@ -146,6 +158,38 @@ async def list_invoices(
     return [InvoiceRecordRead.model_validate(r) for r in records]
 
 
+@router.get("/draft", response_model=InvoiceData)
+async def create_invoice_draft(
+    db: AsyncSession = Depends(get_db),
+) -> InvoiceData:
+    """Return a fresh invoice draft without invoking AI generation."""
+    settings_row = await _business_settings(db)
+    return InvoiceData.model_validate({
+        "invoice_number": await _next_invoice_number(db),
+        "issue_date": date.today().isoformat(),
+        "status": "draft",
+        "from": {
+            "name": settings_row.name if settings_row else None,
+            "address": settings_row.address if settings_row else None,
+            "email": settings_row.email if settings_row else None,
+            "phone": settings_row.phone if settings_row else None,
+            "logo_path": settings_row.logo_path if settings_row else None,
+        },
+        "to": {
+            "client_id": None,
+            "name": None,
+            "address": None,
+            "email": None,
+            "phone": None,
+        },
+        "line_items": [
+            {"description": "", "quantity": 1, "unit": "item", "unit_price": 0, "subtotal": 0}
+        ],
+        "totals": {"subtotal": 0, "grand_total": 0},
+        "notes": None,
+    })
+
+
 @router.get("/{record_id}/pdf")
 async def view_invoice_pdf(
     record_id: int,
@@ -179,13 +223,10 @@ async def generate_invoice(
     then calls OpenAI gpt-4o-mini to produce a structured invoice JSON.
     """
     # 1. Determine next invoice number from the DB
-    result = await db.execute(select(func.count()).select_from(InvoiceRecord))
-    total = result.scalar_one()
-    next_number = f"Invoice-#{total + 1}"
+    next_number = await _next_invoice_number(db)
 
     # 2. Load business settings (may be empty on first use)
-    settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.id == 1))
-    settings_row = settings_result.scalar_one_or_none()
+    settings_row = await _business_settings(db)
     business_profile: dict = {}
     if settings_row:
         business_profile = {

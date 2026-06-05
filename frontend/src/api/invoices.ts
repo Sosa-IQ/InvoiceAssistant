@@ -23,6 +23,11 @@ export async function generateInvoice(prompt: string): Promise<GenerateInvoiceRe
   return data
 }
 
+export async function createInvoiceDraft(): Promise<InvoiceData> {
+  const { data } = await api.get<InvoiceData>("/api/invoices/draft")
+  return data
+}
+
 export async function exportInvoice(invoice: InvoiceData): Promise<Blob> {
   const { data } = await api.post<Blob>("/api/invoices/export", invoice, {
     responseType: "blob",
