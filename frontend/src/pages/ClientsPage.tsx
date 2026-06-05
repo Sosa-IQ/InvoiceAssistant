@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus, Pencil, Trash2, Users, MapPin } from "lucide-react"
+import { ChevronDown, ChevronRight, Plus, Pencil, Trash2, Users, MapPin } from "lucide-react"
 import { toast } from "sonner"
 import { useForm } from "react-hook-form"
 import { Button } from "@/components/ui/button"
@@ -48,6 +48,7 @@ export default function ClientsPage() {
   const [addrOpen, setAddrOpen] = useState(false)
   const [addrClient, setAddrClient] = useState<Client | null>(null)
   const [editingAddr, setEditingAddr] = useState<ClientAddress | null>(null)
+  const [expandedAddressClientIds, setExpandedAddressClientIds] = useState<number[]>([])
   const addrForm = useForm<AddressFormData>()
 
   const { data: clients = [] } = useQuery<Client[]>({
@@ -127,6 +128,12 @@ export default function ClientsPage() {
     setAddrOpen(false)
   }
 
+  function toggleAddresses(clientId: number) {
+    setExpandedAddressClientIds((ids) =>
+      ids.includes(clientId) ? ids.filter((id) => id !== clientId) : [...ids, clientId],
+    )
+  }
+
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
@@ -141,8 +148,13 @@ export default function ClientsPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {clients.map((c) => (
-            <div key={c.id} className="border rounded-lg p-4 space-y-3">
+          {clients.map((c) => {
+            const hasManyAddresses = c.addresses.length > 1
+            const addressesExpanded = !hasManyAddresses || expandedAddressClientIds.includes(c.id)
+            const AddressChevron = addressesExpanded ? ChevronDown : ChevronRight
+
+            return (
+              <div key={c.id} className="border rounded-lg p-4 space-y-3">
               {/* Client header row */}
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -169,9 +181,26 @@ export default function ClientsPage() {
               {/* Addresses */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Addresses
-                  </span>
+                  {hasManyAddresses ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 -ml-2 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      aria-expanded={addressesExpanded}
+                      onClick={() => toggleAddresses(c.id)}
+                    >
+                      <AddressChevron className="mr-1 h-3.5 w-3.5" />
+                      Addresses
+                      <span className="ml-1 font-normal normal-case tracking-normal">
+                        ({c.addresses.length})
+                      </span>
+                    </Button>
+                  ) : (
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Addresses
+                    </span>
+                  )}
                   <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => openAddAddr(c)}>
                     <Plus className="h-3 w-3 mr-1" />Add
                   </Button>
@@ -179,6 +208,10 @@ export default function ClientsPage() {
 
                 {c.addresses.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">No addresses yet.</p>
+                ) : !addressesExpanded ? (
+                  <p className="text-xs text-muted-foreground">
+                    {c.addresses.length} saved addresses
+                  </p>
                 ) : (
                   <Table>
                     <TableHeader>
@@ -223,7 +256,8 @@ export default function ClientsPage() {
                 )}
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
