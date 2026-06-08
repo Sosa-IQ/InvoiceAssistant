@@ -20,7 +20,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { exportInvoice } from "@/api/invoices"
+import { exportInvoice, getNextInvoiceNumber } from "@/api/invoices"
 import { createClient, createClientAddress, listClients } from "@/api/clients"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -131,6 +131,7 @@ export default function InvoiceEditorPage() {
 
   const { fields, append, remove, move } = useFieldArray({ control, name: "line_items" })
   const billTo = useWatch({ control, name: "to" })
+  const currentInvoiceNumber = useWatch({ control, name: "invoice_number" })
   const lineItems = useWatch({ control, name: "line_items" }) ?? []
   const total = lineItems.reduce((s, li) => s + (+li.quantity * +li.unit_price), 0)
 
@@ -182,6 +183,16 @@ export default function InvoiceEditorPage() {
     })
   }
 
+  async function syncInvoiceNumber(clientId: number, force = false) {
+    if (!force && currentInvoiceNumber) return
+    try {
+      const preview = await getNextInvoiceNumber(clientId)
+      setValue("invoice_number", preview.invoice_number, { shouldDirty: true })
+    } catch {
+      toast.error("Could not load the next invoice number for this client.")
+    }
+  }
+
   function setBillToClient(client: Client, address?: { id: number; address: string } | null) {
     setValue("to.client_id", client.id, { shouldDirty: true })
     setValue("to.name", client.name, { shouldDirty: true })
@@ -197,6 +208,7 @@ export default function InvoiceEditorPage() {
       phone: client.phone,
       address: addressValue,
     })
+    void syncInvoiceNumber(client.id, true)
     closeClientPicker()
   }
 
@@ -257,10 +269,22 @@ export default function InvoiceEditorPage() {
         phone: billTo?.phone ?? null,
         address: billTo?.address ?? null,
       })
+      await syncInvoiceNumber(client.id)
       toast.success("Client saved.")
     },
     onError: () => toast.error("Failed to save client."),
   })
+
+  useEffect(() => {
+    if (!selectedClientSnapshot || !selectedClientChanged || !billTo?.client_id) return
+    setValue("to.client_id", null, { shouldDirty: true })
+    setValue("invoice_number", null, { shouldDirty: true })
+  }, [billTo?.client_id, selectedClientChanged, selectedClientSnapshot, setValue])
+
+  useEffect(() => {
+    if (!billTo?.client_id || currentInvoiceNumber) return
+    void syncInvoiceNumber(billTo.client_id)
+  }, [billTo?.client_id, currentInvoiceNumber])
 
   async function onExport(data: InvoiceData) {
     setIsExporting(true)
@@ -275,7 +299,7 @@ export default function InvoiceEditorPage() {
       clearDraft()
       toast.success("PDF downloaded.")
     } catch {
-      toast.error("Export failed. Check that the backend is running.")
+      toast.error("Export failed. Save or select a client first, then try again.")
     } finally {
       setIsExporting(false)
     }
@@ -319,7 +343,11 @@ export default function InvoiceEditorPage() {
         <section className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label>Invoice Number</Label>
-            <Input {...register("invoice_number")} placeholder="Invoice-#1" />
+            <Input
+              {...register("invoice_number")}
+              placeholder="Assigned after selecting a saved client"
+              readOnly
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Date</Label>

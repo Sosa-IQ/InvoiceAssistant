@@ -77,6 +77,7 @@ class ClientRead(BaseModel):
     id: int
     user_id: str
     name: str
+    client_code: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     notes: Optional[str] = None
@@ -142,6 +143,8 @@ class CatalogRecommendationRead(BaseModel):
 class InvoiceRecordRead(BaseModel):
     id: int
     user_id: str
+    client_id: Optional[int] = None
+    client_invoice_sequence: Optional[int] = None
     filename: str
     file_path: str
     storage_path: Optional[str] = None
@@ -238,6 +241,13 @@ class GenerateInvoiceRequest(BaseModel):
 class GenerateInvoiceResponse(BaseModel):
     invoice: InvoiceData
     rag_docs_used: int = 0
+
+
+class NextInvoiceNumberResponse(BaseModel):
+    client_id: int
+    client_code: str
+    client_invoice_sequence: int
+    invoice_number: str
 
 
 class ProfileRead(BaseModel):

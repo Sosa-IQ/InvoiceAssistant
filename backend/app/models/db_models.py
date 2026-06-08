@@ -42,10 +42,12 @@ class BusinessSettings(Base):
 
 class Client(Base):
     __tablename__ = "clients"
+    __table_args__ = (UniqueConstraint("user_id", "client_code", name="uq_clients_user_id_client_code"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, ForeignKey("profiles.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    client_code: Mapped[str | None] = mapped_column(String(32), index=True)
     address: Mapped[str | None] = mapped_column(Text)  # kept for legacy; use ClientAddress going forward
     email: Mapped[str | None] = mapped_column(String)
     phone: Mapped[str | None] = mapped_column(String)
@@ -93,10 +95,18 @@ class InvoiceRecord(Base):
         CheckConstraint(
             "source IN ('uploaded', 'generated')", name="valid_source"
         ),
+        UniqueConstraint(
+            "user_id",
+            "client_id",
+            "client_invoice_sequence",
+            name="uq_invoice_records_user_client_sequence",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, ForeignKey("profiles.id"), nullable=False, index=True)
+    client_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("clients.id", ondelete="SET NULL"), index=True)
+    client_invoice_sequence: Mapped[int | None] = mapped_column(Integer)
     filename: Mapped[str] = mapped_column(String, nullable=False)
     file_path: Mapped[str] = mapped_column(String, nullable=False)
     storage_path: Mapped[str | None] = mapped_column(String)

@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react"
 import type { Session, User } from "@supabase/supabase-js"
+import { toast } from "sonner"
+import { getCurrentUserProfile } from "@/api/auth"
 import { isSupabaseConfigured, supabase } from "@/lib/supabase"
 
 type AuthContextValue = {
@@ -21,16 +23,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
+    async function bootstrapSession(nextSession: Session | null) {
+      setSession(nextSession)
+      if (!nextSession) {
+        setLoading(false)
+        return
+      }
+
+      try {
+        await getCurrentUserProfile()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not initialize your account."
+        toast.error(message)
+      } finally {
+        setLoading(false)
+      }
+    }
+
     supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
-      setLoading(false)
+      void bootstrapSession(data.session)
     })
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession)
-      setLoading(false)
+      setLoading(true)
+      void bootstrapSession(nextSession)
     })
 
     return () => subscription.unsubscribe()

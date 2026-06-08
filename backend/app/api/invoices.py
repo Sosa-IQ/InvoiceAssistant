@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -21,7 +21,13 @@ from app.models.schemas import (
     GenerateInvoiceResponse,
     InvoiceData,
     InvoiceRecordRead,
+    NextInvoiceNumberResponse,
     UploadResult,
+)
+from app.services.invoice_numbering import (
+    ensure_client_code,
+    format_invoice_number,
+    next_client_invoice_sequence,
 )
 from app.services.openai_service import OpenAIService
 from app.services.pdf_generator import PDFGeneratorService
@@ -38,10 +44,41 @@ openai_svc = OpenAIService()
 pdf_gen = PDFGeneratorService()
 
 
-async def _next_invoice_number(db: AsyncSession, user_id: str) -> str:
-    result = await db.execute(select(func.count()).select_from(InvoiceRecord).where(InvoiceRecord.user_id == user_id))
-    total = result.scalar_one()
-    return f"Invoice-#{total + 1}"
+async def _get_owned_client(
+    db: AsyncSession,
+    user_id: str,
+    client_id: int,
+) -> Client | None:
+    result = await db.execute(
+        select(Client)
+        .options(selectinload(Client.addresses))
+        .where(Client.id == client_id, Client.user_id == user_id)
+    )
+    client = result.scalar_one_or_none()
+    if client:
+        had_code = bool(client.client_code)
+        await ensure_client_code(db, client)
+        if not had_code:
+            await db.commit()
+    return client
+
+
+async def _next_invoice_preview(
+    db: AsyncSession,
+    user_id: str,
+    client_id: int,
+) -> NextInvoiceNumberResponse:
+    client = await _get_owned_client(db, user_id, client_id)
+    if not client or not client.client_code:
+        raise HTTPException(404, "Client not found.")
+
+    sequence = await next_client_invoice_sequence(db, user_id, client.id)
+    return NextInvoiceNumberResponse(
+        client_id=client.id,
+        client_code=client.client_code,
+        client_invoice_sequence=sequence,
+        invoice_number=format_invoice_number(client.client_code, sequence),
+    )
 
 
 async def _business_settings(db: AsyncSession, user_id: str) -> BusinessSettings | None:
@@ -165,13 +202,18 @@ async def list_invoices(
 
 @router.get("/draft", response_model=InvoiceData)
 async def create_invoice_draft(
+    client_id: int | None = None,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> InvoiceData:
     """Return a fresh invoice draft without invoking AI generation."""
     settings_row = await _business_settings(db, current_user.id)
+    invoice_number = None
+    if client_id is not None:
+        preview = await _next_invoice_preview(db, current_user.id, client_id)
+        invoice_number = preview.invoice_number
     return InvoiceData.model_validate({
-        "invoice_number": await _next_invoice_number(db, current_user.id),
+        "invoice_number": invoice_number,
         "issue_date": date.today().isoformat(),
         "status": "draft",
         "from": {
@@ -194,6 +236,15 @@ async def create_invoice_draft(
         "totals": {"subtotal": 0, "grand_total": 0},
         "notes": None,
     })
+
+
+@router.get("/next-number", response_model=NextInvoiceNumberResponse)
+async def get_next_invoice_number(
+    client_id: int,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NextInvoiceNumberResponse:
+    return await _next_invoice_preview(db, current_user.id, client_id)
 
 
 @router.get("/{record_id}/pdf")
@@ -238,8 +289,6 @@ async def generate_invoice(
     then calls OpenAI gpt-4o-mini to produce a structured invoice JSON.
     """
     # 1. Determine next invoice number from the DB
-    next_number = await _next_invoice_number(db, current_user.id)
-
     # 2. Load business settings (may be empty on first use)
     settings_row = await _business_settings(db, current_user.id)
     business_profile: dict = {}
@@ -302,7 +351,7 @@ async def generate_invoice(
             prompt=body.prompt,
             business_profile=business_profile,
             rag_context=rag_context,
-            next_invoice_number=next_number,
+            next_invoice_number="assigned-after-client-selection",
             client_context=client_context,
             catalog_context=catalog_context,
         )
@@ -310,7 +359,23 @@ async def generate_invoice(
         logger.error("Invoice generation failed: %s", exc)
         raise HTTPException(422, detail=str(exc))
 
-    logger.info("Generated invoice %s using %d RAG docs.", next_number, docs_used)
+    if invoice_data.to.client_id is not None:
+        client = await _get_owned_client(db, current_user.id, invoice_data.to.client_id)
+        if client and client.client_code:
+            preview = await _next_invoice_preview(db, current_user.id, client.id)
+            invoice_data.invoice_number = preview.invoice_number
+            invoice_data.to.name = client.name
+            invoice_data.to.email = client.email
+            invoice_data.to.phone = client.phone
+            if len(client.addresses) == 1 and not invoice_data.to.address:
+                invoice_data.to.address = client.addresses[0].address
+        else:
+            invoice_data.to.client_id = None
+            invoice_data.invoice_number = None
+    else:
+        invoice_data.invoice_number = None
+
+    logger.info("Generated invoice draft using %d RAG docs.", docs_used)
     return GenerateInvoiceResponse(invoice=invoice_data, rag_docs_used=docs_used)
 
 
@@ -324,8 +389,38 @@ async def export_invoice(
     Accept an InvoiceData payload, recalculate totals server-side, render to PDF,
     save to disk, upsert the invoice_records row, and return the PDF as a download.
     """
+    invoice = body
+
+    if invoice.to.client_id is None:
+        raise HTTPException(422, detail="Select a saved client before exporting so the invoice can receive a per-client number.")
+
+    client = await _get_owned_client(db, current_user.id, invoice.to.client_id)
+    if not client or not client.client_code:
+        raise HTTPException(422, detail="Selected client was not found.")
+
+    existing = None
+    if invoice.invoice_number:
+        res = await db.execute(
+            select(InvoiceRecord).where(
+                InvoiceRecord.invoice_number == invoice.invoice_number,
+                InvoiceRecord.user_id == current_user.id,
+            )
+        )
+        existing = res.scalar_one_or_none()
+
+    if existing and existing.client_id == client.id and existing.client_invoice_sequence:
+        client_sequence = existing.client_invoice_sequence
+    else:
+        client_sequence = await next_client_invoice_sequence(db, current_user.id, client.id)
+
+    invoice.invoice_number = format_invoice_number(client.client_code, client_sequence)
+    invoice.to.client_id = client.id
+    invoice.to.name = client.name
+    invoice.to.email = client.email
+    invoice.to.phone = client.phone
+
     # 1. Authoritative total recalculation
-    invoice = pdf_gen.recalculate_totals(body)
+    invoice = pdf_gen.recalculate_totals(invoice)
 
     # 2. Load logo path from settings (if configured)
     settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.user_id == current_user.id))
@@ -348,14 +443,9 @@ async def export_invoice(
     # 5. Upsert invoice_records: update if invoice_number exists, else create
     invoice_json_str = json.dumps(invoice.model_dump(by_alias=True))
 
-    existing = None
-    if invoice.invoice_number:
-        res = await db.execute(
-            select(InvoiceRecord).where(InvoiceRecord.invoice_number == invoice.invoice_number, InvoiceRecord.user_id == current_user.id)
-        )
-        existing = res.scalar_one_or_none()
-
     if existing:
+        existing.client_id = client.id
+        existing.client_invoice_sequence = client_sequence
         existing.file_path = str(pdf_path)
         existing.storage_path = storage_path
         existing.filename = filename
@@ -369,6 +459,8 @@ async def export_invoice(
     else:
         record = InvoiceRecord(
             user_id=current_user.id,
+            client_id=client.id,
+            client_invoice_sequence=client_sequence,
             filename=filename,
             file_path=str(pdf_path),
             storage_path=storage_path,

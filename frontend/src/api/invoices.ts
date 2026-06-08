@@ -3,6 +3,7 @@ import type {
   GenerateInvoiceResponse,
   InvoiceData,
   InvoiceRecord,
+  NextInvoiceNumberResponse,
 } from "@/types/invoice"
 import api from "./client"
 
@@ -25,6 +26,13 @@ export async function generateInvoice(prompt: string): Promise<GenerateInvoiceRe
 
 export async function createInvoiceDraft(): Promise<InvoiceData> {
   const { data } = await api.get<InvoiceData>("/api/invoices/draft")
+  return data
+}
+
+export async function getNextInvoiceNumber(clientId: number): Promise<NextInvoiceNumberResponse> {
+  const { data } = await api.get<NextInvoiceNumberResponse>("/api/invoices/next-number", {
+    params: { client_id: clientId },
+  })
   return data
 }
 

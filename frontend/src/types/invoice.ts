@@ -43,6 +43,8 @@ export interface InvoiceData {
 export interface InvoiceRecord {
   id: number
   user_id: string
+  client_id: number | null
+  client_invoice_sequence: number | null
   filename: string
   file_path: string
   storage_path: string | null
@@ -77,6 +79,13 @@ export interface GenerateInvoiceResponse {
   rag_docs_used: number
 }
 
+export interface NextInvoiceNumberResponse {
+  client_id: number
+  client_code: string
+  client_invoice_sequence: number
+  invoice_number: string
+}
+
 export interface ClientAddress {
   id: number
   client_id: number
@@ -89,6 +98,7 @@ export interface Client {
   id: number
   user_id: string
   name: string
+  client_code: string | null
   email: string | null
   phone: string | null
   notes: string | null

@@ -15,6 +15,7 @@ from app.models.schemas import (
     ClientRead,
     ClientUpdate,
 )
+from app.services.invoice_numbering import ensure_client_code
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/clients", tags=["clients"])
@@ -46,6 +47,8 @@ async def create_client(
 ) -> ClientRead:
     client = Client(user_id=current_user.id, **body.model_dump())
     db.add(client)
+    await db.flush()
+    await ensure_client_code(db, client)
     await db.commit()
     result = await db.execute(
         select(Client).options(_with_addresses()).where(Client.id == client.id)
@@ -85,6 +88,7 @@ async def update_client(
         raise HTTPException(404, f"Client {client_id} not found.")
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(client, field, value)
+    await ensure_client_code(db, client)
     await db.commit()
     result = await db.execute(
         select(Client).options(_with_addresses()).where(Client.id == client_id, Client.user_id == current_user.id)

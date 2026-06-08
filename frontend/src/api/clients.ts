@@ -1,7 +1,7 @@
 import type { Client, ClientAddress } from "@/types/invoice"
 import api from "./client"
 
-type ClientPayload = Omit<Client, "id" | "user_id" | "created_at" | "updated_at" | "addresses">
+type ClientPayload = Omit<Client, "id" | "user_id" | "client_code" | "created_at" | "updated_at" | "addresses">
 
 export async function listClients(search?: string): Promise<Client[]> {
   const { data } = await api.get<Client[]>("/api/clients", { params: search ? { search } : {} })

@@ -51,9 +51,14 @@ async def _ensure_sqlite_columns(conn: AsyncEngine | AsyncSession) -> None:
                               "default_tax_pct": "FLOAT DEFAULT 0.0", "payment_terms": "VARCHAR DEFAULT 'Net 30'",
                               "bank_name": "VARCHAR", "account_name": "VARCHAR", "account_number": "VARCHAR",
                               "routing_number": "VARCHAR", "payment_notes": "TEXT"},
-        "clients": {"user_id": "TEXT"},
+        "clients": {"user_id": "TEXT", "client_code": "VARCHAR(32)"},
         "catalog_items": {"user_id": "TEXT"},
-        "invoice_records": {"user_id": "TEXT", "storage_path": "VARCHAR"},
+        "invoice_records": {
+            "user_id": "TEXT",
+            "storage_path": "VARCHAR",
+            "client_id": "INTEGER",
+            "client_invoice_sequence": "INTEGER",
+        },
     }
 
     for table, columns in table_columns.items():
@@ -77,9 +82,12 @@ async def _ensure_postgres_columns(conn: AsyncEngine | AsyncSession) -> None:
         "ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS routing_number VARCHAR",
         "ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS payment_notes TEXT",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS user_id UUID",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS client_code VARCHAR(32)",
         "ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS user_id UUID",
         "ALTER TABLE invoice_records ADD COLUMN IF NOT EXISTS user_id UUID",
         "ALTER TABLE invoice_records ADD COLUMN IF NOT EXISTS storage_path VARCHAR",
+        "ALTER TABLE invoice_records ADD COLUMN IF NOT EXISTS client_id BIGINT",
+        "ALTER TABLE invoice_records ADD COLUMN IF NOT EXISTS client_invoice_sequence INTEGER",
     ]
     for statement in statements:
         await conn.execute(text(statement))
