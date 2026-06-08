@@ -5,8 +5,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import async_session_factory, init_db
-from app.services.migration_service import MigrationService
+from app.database import init_db
 from app.services.supabase_service import SupabaseService
 from app.services.vector_store import VectorStoreService
 
@@ -27,8 +26,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     supabase = SupabaseService()
     await supabase.ensure_bucket()
-    async with async_session_factory() as session:
-        await MigrationService(supabase).migrate_if_enabled(session)
 
     # Initialize ChromaDB (singleton — shared across all requests)
     vector_store = VectorStoreService()

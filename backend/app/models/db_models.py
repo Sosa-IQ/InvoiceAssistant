@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -9,7 +10,7 @@ from app.database import Base
 class Profile(Base):
     __tablename__ = "profiles"
 
-    id: Mapped[str] = mapped_column(String, primary_key=True)
+    id: Mapped[str] = mapped_column(PGUUID(as_uuid=False), primary_key=True)
     email: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
     display_name: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -19,8 +20,8 @@ class BusinessSettings(Base):
     __tablename__ = "business_settings"
     __table_args__ = (UniqueConstraint("user_id", name="uq_business_settings_user_id"),)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    user_id: Mapped[str] = mapped_column(String, ForeignKey("profiles.id"), nullable=False, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True)
     name: Mapped[str | None] = mapped_column(String)
     address: Mapped[str | None] = mapped_column(Text)
     email: Mapped[str | None] = mapped_column(String)
@@ -45,7 +46,7 @@ class Client(Base):
     __table_args__ = (UniqueConstraint("user_id", "client_code", name="uq_clients_user_id_client_code"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column(String, ForeignKey("profiles.id"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     client_code: Mapped[str | None] = mapped_column(String(32), index=True)
     address: Mapped[str | None] = mapped_column(Text)  # kept for legacy; use ClientAddress going forward
@@ -78,7 +79,7 @@ class CatalogItem(Base):
     __tablename__ = "catalog_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column(String, ForeignKey("profiles.id"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True)
     description: Mapped[str] = mapped_column(String, nullable=False, index=True)
     unit_price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     unit: Mapped[str] = mapped_column(String, nullable=False, default="item")
@@ -104,7 +105,7 @@ class InvoiceRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column(String, ForeignKey("profiles.id"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True)
     client_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("clients.id", ondelete="SET NULL"), index=True)
     client_invoice_sequence: Mapped[int | None] = mapped_column(Integer)
     filename: Mapped[str] = mapped_column(String, nullable=False)

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -19,6 +19,16 @@ async def _get_or_create_for_user(db: AsyncSession, user_id: str) -> BusinessSet
     result = await db.execute(select(BusinessSettings).where(BusinessSettings.user_id == user_id))
     row = result.scalar_one_or_none()
     if row is None:
+        legacy_result = await db.execute(
+            select(BusinessSettings).where(BusinessSettings.user_id.is_(None)).order_by(BusinessSettings.id)
+        )
+        legacy_row = legacy_result.scalar_one_or_none()
+        if legacy_row is not None:
+            legacy_row.user_id = user_id
+            await db.commit()
+            await db.refresh(legacy_row)
+            return legacy_row
+
         row = BusinessSettings(user_id=user_id)
         db.add(row)
         await db.commit()
@@ -46,7 +56,7 @@ async def update_settings(
     row = await _get_or_create_for_user(db, current_user.id)
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(row, field, value)
-    row.updated_at = datetime.now(timezone.utc)
+    row.updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(row)
     logger.info("Business settings updated.")

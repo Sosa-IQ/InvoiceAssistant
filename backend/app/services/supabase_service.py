@@ -1,5 +1,4 @@
 import logging
-from pathlib import Path
 from urllib.parse import quote
 
 import httpx
@@ -60,36 +59,3 @@ class SupabaseService:
             response = await client.get(url, headers=self._headers())
             response.raise_for_status()
             return response.content
-
-    async def migrate_local_file(self, user_id: str, folder: str, file_path: Path) -> str:
-        storage_path = f"{user_id}/{folder}/{file_path.name}"
-        await self.upload_bytes(storage_path, file_path.read_bytes(), "application/pdf")
-        return storage_path
-
-    async def ensure_bootstrap_user(self) -> dict:
-        if not self.base_url:
-            raise RuntimeError("SUPABASE_URL is not configured.")
-
-        payload = {
-            "email": settings.bootstrap_user_email,
-            "password": settings.bootstrap_user_password,
-            "email_confirm": True,
-            "user_metadata": {"display_name": "Bootstrap Owner"},
-        }
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{self.base_url}/auth/v1/admin/users",
-                headers={**self._headers(), "Content-Type": "application/json"},
-                json=payload,
-            )
-            if response.status_code == 422:
-                existing = await client.get(
-                    f"{self.base_url}/auth/v1/admin/users",
-                    headers=self._headers(),
-                )
-                existing.raise_for_status()
-                for user in existing.json().get("users", []):
-                    if user.get("email") == settings.bootstrap_user_email:
-                        return user
-            response.raise_for_status()
-            return response.json().get("user", response.json())

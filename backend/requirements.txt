@@ -5,7 +5,6 @@ python-multipart==0.0.19
 
 # Database
 sqlalchemy==2.0.36
-aiosqlite==0.20.0
 asyncpg==0.30.0
 greenlet==3.1.1
 
