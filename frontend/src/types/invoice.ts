@@ -42,8 +42,10 @@ export interface InvoiceData {
 
 export interface InvoiceRecord {
   id: number
+  user_id: string
   filename: string
   file_path: string
+  storage_path: string | null
   source: string
   invoice_number: string | null
   client_name: string | null
@@ -85,6 +87,7 @@ export interface ClientAddress {
 
 export interface Client {
   id: number
+  user_id: string
   name: string
   email: string | null
   phone: string | null
@@ -96,6 +99,7 @@ export interface Client {
 
 export interface CatalogItem {
   id: number
+  user_id: string
   description: string
   unit_price: number
   unit: string
@@ -116,10 +120,31 @@ export interface CatalogRecommendation {
 
 export interface BusinessSettings {
   id: number
+  user_id: string
   name: string | null
   address: string | null
   email: string | null
   phone: string | null
   logo_path: string | null
+  tax_id: string | null
+  default_currency: string
+  default_tax_pct: number
+  payment_terms: string
+  bank_name: string | null
+  account_name: string | null
+  account_number: string | null
+  routing_number: string | null
+  payment_notes: string | null
   updated_at: string | null
+}
+
+export interface Profile {
+  id: string
+  email: string
+  display_name: string | null
+  created_at: string | null
+}
+
+export interface AuthMeResponse {
+  user: Profile
 }

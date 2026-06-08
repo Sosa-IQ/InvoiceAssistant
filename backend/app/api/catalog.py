@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import AuthenticatedUser, get_current_user
 from app.database import get_db
 from app.models.db_models import CatalogItem, InvoiceRecord
 from app.models.schemas import (
@@ -95,10 +96,11 @@ def _most_common_value(values: list[T], fallback: T) -> T:
 @router.get("", response_model=list[CatalogItemRead])
 async def list_catalog(
     search: str | None = None,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[CatalogItemRead]:
     """Return all catalog items, optionally filtered by description (case-insensitive)."""
-    query = select(CatalogItem).order_by(CatalogItem.description)
+    query = select(CatalogItem).where(CatalogItem.user_id == current_user.id).order_by(CatalogItem.description)
     if search:
         query = query.where(CatalogItem.description.ilike(f"%{search}%"))
     result = await db.execute(query)
@@ -108,9 +110,10 @@ async def list_catalog(
 @router.post("", response_model=CatalogItemRead, status_code=201)
 async def create_catalog_item(
     body: CatalogItemCreate,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CatalogItemRead:
-    item = CatalogItem(**body.model_dump())
+    item = CatalogItem(user_id=current_user.id, **body.model_dump())
     db.add(item)
     await db.commit()
     await db.refresh(item)
@@ -120,6 +123,7 @@ async def create_catalog_item(
 
 @router.post("/recommendations", response_model=list[CatalogRecommendationRead])
 async def recommend_catalog_items(
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[CatalogRecommendationRead]:
     """
@@ -129,7 +133,7 @@ async def recommend_catalog_items(
     line items as JSON, which is reliable enough to turn into saveable catalog
     recommendations.
     """
-    catalog_result = await db.execute(select(CatalogItem.description))
+    catalog_result = await db.execute(select(CatalogItem.description).where(CatalogItem.user_id == current_user.id))
     existing_descriptions = {
         _recommendation_group_key(description)
         for description in catalog_result.scalars().all()
@@ -137,6 +141,7 @@ async def recommend_catalog_items(
 
     records_result = await db.execute(
         select(InvoiceRecord)
+        .where(InvoiceRecord.user_id == current_user.id)
         .where(InvoiceRecord.invoice_json.is_not(None))
         .order_by(InvoiceRecord.created_at.desc())
     )
@@ -210,9 +215,10 @@ async def recommend_catalog_items(
 @router.get("/{item_id}", response_model=CatalogItemRead)
 async def get_catalog_item(
     item_id: int,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CatalogItemRead:
-    result = await db.execute(select(CatalogItem).where(CatalogItem.id == item_id))
+    result = await db.execute(select(CatalogItem).where(CatalogItem.id == item_id, CatalogItem.user_id == current_user.id))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(404, f"Catalog item {item_id} not found.")
@@ -223,9 +229,10 @@ async def get_catalog_item(
 async def update_catalog_item(
     item_id: int,
     body: CatalogItemUpdate,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CatalogItemRead:
-    result = await db.execute(select(CatalogItem).where(CatalogItem.id == item_id))
+    result = await db.execute(select(CatalogItem).where(CatalogItem.id == item_id, CatalogItem.user_id == current_user.id))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(404, f"Catalog item {item_id} not found.")
@@ -239,9 +246,10 @@ async def update_catalog_item(
 @router.delete("/{item_id}", status_code=204)
 async def delete_catalog_item(
     item_id: int,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    result = await db.execute(select(CatalogItem).where(CatalogItem.id == item_id))
+    result = await db.execute(select(CatalogItem).where(CatalogItem.id == item_id, CatalogItem.user_id == current_user.id))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(404, f"Catalog item {item_id} not found.")

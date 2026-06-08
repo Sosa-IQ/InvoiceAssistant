@@ -5,7 +5,9 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import init_db
+from app.database import async_session_factory, init_db
+from app.services.migration_service import MigrationService
+from app.services.supabase_service import SupabaseService
 from app.services.vector_store import VectorStoreService
 
 logging.basicConfig(
@@ -22,6 +24,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Create DB tables and data directories
     await init_db()
+
+    supabase = SupabaseService()
+    await supabase.ensure_bucket()
+    async with async_session_factory() as session:
+        await MigrationService(supabase).migrate_if_enabled(session)
 
     # Initialize ChromaDB (singleton — shared across all requests)
     vector_store = VectorStoreService()
@@ -43,14 +50,16 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):5173",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Routers
-from app.api import catalog, clients, invoices, settings, voice  # noqa: E402
+from app.api import auth, catalog, clients, invoices, settings, voice  # noqa: E402
 
+app.include_router(auth.router)
 app.include_router(invoices.router)
 app.include_router(clients.router)
 app.include_router(catalog.router)

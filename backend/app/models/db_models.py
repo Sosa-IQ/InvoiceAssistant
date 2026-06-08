@@ -1,16 +1,26 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
 
+class Profile(Base):
+    __tablename__ = "profiles"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    email: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    display_name: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
 class BusinessSettings(Base):
     __tablename__ = "business_settings"
-    __table_args__ = (CheckConstraint("id = 1", name="single_row"),)
+    __table_args__ = (UniqueConstraint("user_id", name="uq_business_settings_user_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("profiles.id"), nullable=False, index=True)
     name: Mapped[str | None] = mapped_column(String)
     address: Mapped[str | None] = mapped_column(Text)
     email: Mapped[str | None] = mapped_column(String)
@@ -34,6 +44,7 @@ class Client(Base):
     __tablename__ = "clients"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("profiles.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     address: Mapped[str | None] = mapped_column(Text)  # kept for legacy; use ClientAddress going forward
     email: Mapped[str | None] = mapped_column(String)
@@ -65,6 +76,7 @@ class CatalogItem(Base):
     __tablename__ = "catalog_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("profiles.id"), nullable=False, index=True)
     description: Mapped[str] = mapped_column(String, nullable=False, index=True)
     unit_price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     unit: Mapped[str] = mapped_column(String, nullable=False, default="item")
@@ -84,8 +96,10 @@ class InvoiceRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("profiles.id"), nullable=False, index=True)
     filename: Mapped[str] = mapped_column(String, nullable=False)
     file_path: Mapped[str] = mapped_column(String, nullable=False)
+    storage_path: Mapped[str | None] = mapped_column(String)
     source: Mapped[str] = mapped_column(String, nullable=False)
     invoice_number: Mapped[str | None] = mapped_column(String, index=True)
     client_name: Mapped[str | None] = mapped_column(String, index=True)

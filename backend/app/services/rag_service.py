@@ -14,7 +14,7 @@ class RAGService:
     def __init__(self, vector_store: VectorStoreService) -> None:
         self.vector_store = vector_store
 
-    def get_context(self, prompt: str, max_docs: int = 3) -> tuple[str, int]:
+    def get_context(self, prompt: str, user_id: str, max_docs: int = 3) -> tuple[str, int]:
         """
         Query ChromaDB for the most relevant chunks, deduplicate by source
         document, and return a formatted context string.
@@ -26,7 +26,7 @@ class RAGService:
         Returns:
             (context_text, num_unique_docs_used)
         """
-        hits = self.vector_store.query(prompt, n_results=5)
+        hits = self.vector_store.query(prompt, user_id=user_id, n_results=5)
         if not hits:
             return "", 0
 

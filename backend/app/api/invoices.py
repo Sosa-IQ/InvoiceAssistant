@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.auth import AuthenticatedUser, get_current_user
 from app.database import get_db
 from app.models.db_models import BusinessSettings, CatalogItem, Client, InvoiceRecord
 from app.models.schemas import (
@@ -37,14 +38,14 @@ openai_svc = OpenAIService()
 pdf_gen = PDFGeneratorService()
 
 
-async def _next_invoice_number(db: AsyncSession) -> str:
-    result = await db.execute(select(func.count()).select_from(InvoiceRecord))
+async def _next_invoice_number(db: AsyncSession, user_id: str) -> str:
+    result = await db.execute(select(func.count()).select_from(InvoiceRecord).where(InvoiceRecord.user_id == user_id))
     total = result.scalar_one()
     return f"Invoice-#{total + 1}"
 
 
-async def _business_settings(db: AsyncSession) -> BusinessSettings | None:
-    settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.id == 1))
+async def _business_settings(db: AsyncSession, user_id: str) -> BusinessSettings | None:
+    settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.user_id == user_id))
     return settings_result.scalar_one_or_none()
 
 
@@ -52,6 +53,7 @@ async def _business_settings(db: AsyncSession) -> BusinessSettings | None:
 async def upload_invoices(
     request: Request,
     files: Annotated[list[UploadFile], File(description="One or more invoice PDFs to upload")],
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> BulkUploadResponse:
     """
@@ -77,7 +79,7 @@ async def upload_invoices(
 
         # 1. Save file to disk
         try:
-            doc_id, file_path, contents = await storage.save_uploaded_pdf(file)
+            doc_id, file_path, contents, storage_path = await storage.save_uploaded_pdf(file, current_user.id)
         except ValueError as e:
             results.append(UploadResult(filename=filename, success=False, error=str(e)))
             logger.warning("Failed to save %s: %s", filename, e)
@@ -85,8 +87,10 @@ async def upload_invoices(
 
         # 2. Insert a record with status='processing'
         record = InvoiceRecord(
+            user_id=current_user.id,
             filename=filename,
             file_path=str(file_path),
+            storage_path=storage_path,
             source="uploaded",
             chroma_doc_id=doc_id,
             status="processing",
@@ -116,7 +120,7 @@ async def upload_invoices(
         vector_store.add_document(
             doc_id=doc_id,
             chunks=chunks,
-            metadata={"filename": filename},
+            metadata={"filename": filename, "user_id": current_user.id},
         )
 
         # 5. Extract metadata hints and finalize record
@@ -148,11 +152,12 @@ async def upload_invoices(
 
 @router.get("", response_model=list[InvoiceRecordRead])
 async def list_invoices(
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[InvoiceRecordRead]:
     """Return all invoice records ordered by most recently added."""
     result = await db.execute(
-        select(InvoiceRecord).order_by(InvoiceRecord.created_at.desc())
+        select(InvoiceRecord).where(InvoiceRecord.user_id == current_user.id).order_by(InvoiceRecord.created_at.desc())
     )
     records = result.scalars().all()
     return [InvoiceRecordRead.model_validate(r) for r in records]
@@ -160,12 +165,13 @@ async def list_invoices(
 
 @router.get("/draft", response_model=InvoiceData)
 async def create_invoice_draft(
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> InvoiceData:
     """Return a fresh invoice draft without invoking AI generation."""
-    settings_row = await _business_settings(db)
+    settings_row = await _business_settings(db, current_user.id)
     return InvoiceData.model_validate({
-        "invoice_number": await _next_invoice_number(db),
+        "invoice_number": await _next_invoice_number(db, current_user.id),
         "issue_date": date.today().isoformat(),
         "status": "draft",
         "from": {
@@ -193,18 +199,26 @@ async def create_invoice_draft(
 @router.get("/{record_id}/pdf")
 async def view_invoice_pdf(
     record_id: int,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> FileResponse:
+) -> Response:
     """Return the stored PDF for a given invoice record (inline, for browser preview)."""
-    result = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id))
+    result = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id, InvoiceRecord.user_id == current_user.id))
     record = result.scalar_one_or_none()
     if not record:
         raise HTTPException(404, "Invoice record not found.")
+    if record.storage_path:
+        pdf_bytes = await storage.supabase.download_bytes(record.storage_path)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{record.filename}"'},
+        )
     path = Path(record.file_path)
     if not path.exists():
         raise HTTPException(404, "PDF file not found on disk.")
-    return FileResponse(
-        path,
+    return Response(
+        content=path.read_bytes(),
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{record.filename}"'},
     )
@@ -214,6 +228,7 @@ async def view_invoice_pdf(
 async def generate_invoice(
     request: Request,
     body: GenerateInvoiceRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> GenerateInvoiceResponse:
     """
@@ -223,10 +238,10 @@ async def generate_invoice(
     then calls OpenAI gpt-4o-mini to produce a structured invoice JSON.
     """
     # 1. Determine next invoice number from the DB
-    next_number = await _next_invoice_number(db)
+    next_number = await _next_invoice_number(db, current_user.id)
 
     # 2. Load business settings (may be empty on first use)
-    settings_row = await _business_settings(db)
+    settings_row = await _business_settings(db, current_user.id)
     business_profile: dict = {}
     if settings_row:
         business_profile = {
@@ -247,7 +262,7 @@ async def generate_invoice(
 
     # 3. Load all clients with their addresses for context injection
     clients_result = await db.execute(
-        select(Client).options(selectinload(Client.addresses)).order_by(Client.name)
+        select(Client).options(selectinload(Client.addresses)).where(Client.user_id == current_user.id).order_by(Client.name)
     )
     client_context = [
         {
@@ -264,7 +279,7 @@ async def generate_invoice(
     ]
 
     # 4. Load catalog items for reusable line item context
-    catalog_result = await db.execute(select(CatalogItem).order_by(CatalogItem.description))
+    catalog_result = await db.execute(select(CatalogItem).where(CatalogItem.user_id == current_user.id).order_by(CatalogItem.description))
     catalog_context = [
         {
             "id": item.id,
@@ -279,7 +294,7 @@ async def generate_invoice(
     # 5. Retrieve RAG context
     vector_store = request.app.state.vector_store
     rag_svc = RAGService(vector_store)
-    rag_context, docs_used = rag_svc.get_context(body.prompt)
+    rag_context, docs_used = rag_svc.get_context(body.prompt, current_user.id)
 
     # 6. Call OpenAI
     try:
@@ -302,6 +317,7 @@ async def generate_invoice(
 @router.post("/export")
 async def export_invoice(
     body: InvoiceData,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """
@@ -312,7 +328,7 @@ async def export_invoice(
     invoice = pdf_gen.recalculate_totals(body)
 
     # 2. Load logo path from settings (if configured)
-    settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.id == 1))
+    settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.user_id == current_user.id))
     settings_row = settings_result.scalar_one_or_none()
     logo_path = settings_row.logo_path if settings_row else None
 
@@ -326,9 +342,7 @@ async def export_invoice(
     # 4. Build filename and save to disk
     inv_num = (invoice.invoice_number or "invoice").replace("/", "-").replace(" ", "_")
     filename = f"{inv_num}.pdf"
-    invoices_dir = storage.get_invoices_dir()
-    pdf_path = invoices_dir / filename
-    pdf_path.write_bytes(pdf_bytes)
+    pdf_path, storage_path = await storage.save_generated_pdf(current_user.id, inv_num, pdf_bytes)
     logger.info("Exported PDF saved to %s", pdf_path)
 
     # 5. Upsert invoice_records: update if invoice_number exists, else create
@@ -337,12 +351,13 @@ async def export_invoice(
     existing = None
     if invoice.invoice_number:
         res = await db.execute(
-            select(InvoiceRecord).where(InvoiceRecord.invoice_number == invoice.invoice_number)
+            select(InvoiceRecord).where(InvoiceRecord.invoice_number == invoice.invoice_number, InvoiceRecord.user_id == current_user.id)
         )
         existing = res.scalar_one_or_none()
 
     if existing:
         existing.file_path = str(pdf_path)
+        existing.storage_path = storage_path
         existing.filename = filename
         existing.client_name = invoice.to.name
         existing.issue_date = invoice.issue_date
@@ -353,8 +368,10 @@ async def export_invoice(
         await db.commit()
     else:
         record = InvoiceRecord(
+            user_id=current_user.id,
             filename=filename,
             file_path=str(pdf_path),
+            storage_path=storage_path,
             source="generated",
             invoice_number=invoice.invoice_number,
             client_name=invoice.to.name,
@@ -414,13 +431,14 @@ def _invoice_to_text(invoice: InvoiceData) -> str:
 async def index_invoice(
     record_id: int,
     request: Request,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> InvoiceRecordRead:
     """
     Add (or re-index) an exported invoice into the RAG vector store.
     Uses the stored invoice JSON instead of re-parsing the PDF.
     """
-    res = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id))
+    res = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id, InvoiceRecord.user_id == current_user.id))
     record = res.scalar_one_or_none()
     if not record:
         raise HTTPException(404, "Invoice record not found.")
@@ -435,12 +453,12 @@ async def index_invoice(
 
     # Remove old vectors if previously indexed
     if record.chroma_doc_id:
-        vector_store.delete_document(record.chroma_doc_id)
+        vector_store.delete_document(record.chroma_doc_id, current_user.id)
         logger.info("Removed old vectors for record id=%d (doc_id=%s)", record_id, record.chroma_doc_id)
 
     doc_id = str(uuid.uuid4())
     chunks = parser.chunk_text(text)
-    vector_store.add_document(doc_id, chunks, {"filename": record.filename})
+    vector_store.add_document(doc_id, chunks, {"filename": record.filename, "user_id": current_user.id})
 
     record.chroma_doc_id = doc_id
     await db.commit()
@@ -454,10 +472,11 @@ async def index_invoice(
 async def delete_invoice(
     record_id: int,
     request: Request,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete an invoice record, its PDF file, and any ChromaDB vectors."""
-    res = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id))
+    res = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id, InvoiceRecord.user_id == current_user.id))
     record = res.scalar_one_or_none()
     if not record:
         raise HTTPException(404, "Invoice record not found.")
@@ -465,7 +484,7 @@ async def delete_invoice(
     # Remove vectors from ChromaDB if indexed
     if record.chroma_doc_id:
         vector_store = request.app.state.vector_store
-        vector_store.delete_document(record.chroma_doc_id)
+        vector_store.delete_document(record.chroma_doc_id, current_user.id)
         logger.info("Removed vectors for doc_id=%s", record.chroma_doc_id)
 
     # Delete the PDF file from disk (best-effort)

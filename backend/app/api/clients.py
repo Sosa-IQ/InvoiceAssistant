@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.auth import AuthenticatedUser, get_current_user
 from app.database import get_db
 from app.models.db_models import Client, ClientAddress
 from app.models.schemas import (
@@ -26,10 +27,11 @@ def _with_addresses():
 @router.get("", response_model=list[ClientRead])
 async def list_clients(
     search: str | None = None,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[ClientRead]:
     """Return all clients with their addresses, optionally filtered by name."""
-    query = select(Client).options(_with_addresses()).order_by(Client.name)
+    query = select(Client).options(_with_addresses()).where(Client.user_id == current_user.id).order_by(Client.name)
     if search:
         query = query.where(Client.name.ilike(f"%{search}%"))
     result = await db.execute(query)
@@ -39,9 +41,10 @@ async def list_clients(
 @router.post("", response_model=ClientRead, status_code=201)
 async def create_client(
     body: ClientCreate,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ClientRead:
-    client = Client(**body.model_dump())
+    client = Client(user_id=current_user.id, **body.model_dump())
     db.add(client)
     await db.commit()
     result = await db.execute(
@@ -55,10 +58,11 @@ async def create_client(
 @router.get("/{client_id}", response_model=ClientRead)
 async def get_client(
     client_id: int,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ClientRead:
     result = await db.execute(
-        select(Client).options(_with_addresses()).where(Client.id == client_id)
+        select(Client).options(_with_addresses()).where(Client.id == client_id, Client.user_id == current_user.id)
     )
     client = result.scalar_one_or_none()
     if not client:
@@ -70,10 +74,11 @@ async def get_client(
 async def update_client(
     client_id: int,
     body: ClientUpdate,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ClientRead:
     result = await db.execute(
-        select(Client).options(_with_addresses()).where(Client.id == client_id)
+        select(Client).options(_with_addresses()).where(Client.id == client_id, Client.user_id == current_user.id)
     )
     client = result.scalar_one_or_none()
     if not client:
@@ -82,7 +87,7 @@ async def update_client(
         setattr(client, field, value)
     await db.commit()
     result = await db.execute(
-        select(Client).options(_with_addresses()).where(Client.id == client_id)
+        select(Client).options(_with_addresses()).where(Client.id == client_id, Client.user_id == current_user.id)
     )
     client = result.scalar_one()
     return ClientRead.model_validate(client)
@@ -91,9 +96,10 @@ async def update_client(
 @router.delete("/{client_id}", status_code=204)
 async def delete_client(
     client_id: int,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    result = await db.execute(select(Client).where(Client.id == client_id))
+    result = await db.execute(select(Client).where(Client.id == client_id, Client.user_id == current_user.id))
     client = result.scalar_one_or_none()
     if not client:
         raise HTTPException(404, f"Client {client_id} not found.")
@@ -110,9 +116,10 @@ async def delete_client(
 async def add_client_address(
     client_id: int,
     body: ClientAddressCreate,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ClientAddressRead:
-    result = await db.execute(select(Client).where(Client.id == client_id))
+    result = await db.execute(select(Client).where(Client.id == client_id, Client.user_id == current_user.id))
     if not result.scalar_one_or_none():
         raise HTTPException(404, f"Client {client_id} not found.")
     addr = ClientAddress(client_id=client_id, **body.model_dump())
@@ -128,11 +135,14 @@ async def update_client_address(
     client_id: int,
     address_id: int,
     body: ClientAddressCreate,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ClientAddressRead:
     result = await db.execute(
-        select(ClientAddress).where(
-            ClientAddress.id == address_id, ClientAddress.client_id == client_id
+        select(ClientAddress).join(Client, Client.id == ClientAddress.client_id).where(
+            ClientAddress.id == address_id,
+            ClientAddress.client_id == client_id,
+            Client.user_id == current_user.id,
         )
     )
     addr = result.scalar_one_or_none()
@@ -149,11 +159,14 @@ async def update_client_address(
 async def delete_client_address(
     client_id: int,
     address_id: int,
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     result = await db.execute(
-        select(ClientAddress).where(
-            ClientAddress.id == address_id, ClientAddress.client_id == client_id
+        select(ClientAddress).join(Client, Client.id == ClientAddress.client_id).where(
+            ClientAddress.id == address_id,
+            ClientAddress.client_id == client_id,
+            Client.user_id == current_user.id,
         )
     )
     addr = result.scalar_one_or_none()

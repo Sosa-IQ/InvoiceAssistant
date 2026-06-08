@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { getSettings, updateSettings } from "@/api/settings"
 import type { BusinessSettings } from "@/types/invoice"
 
-type SettingsFormData = Omit<BusinessSettings, "id" | "updated_at">
+type SettingsFormData = Omit<BusinessSettings, "id" | "user_id" | "updated_at">
 
 export default function SettingsPage() {
   const qc = useQueryClient()

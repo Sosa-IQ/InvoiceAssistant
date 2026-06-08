@@ -79,6 +79,7 @@ class VectorStoreService:
     def query(
         self,
         query_text: str,
+        user_id: str,
         n_results: int = 5,
         distance_threshold: float = 0.8,
     ) -> list[dict]:
@@ -98,6 +99,7 @@ class VectorStoreService:
             query_texts=[query_text],
             n_results=actual_n,
             include=["documents", "metadatas", "distances"],
+            where={"user_id": user_id},
         )
 
         hits = []
@@ -111,10 +113,10 @@ class VectorStoreService:
 
         return hits
 
-    def delete_document(self, doc_id: str) -> None:
+    def delete_document(self, doc_id: str, user_id: str) -> None:
         """Remove all chunks belonging to a document."""
-        self.collection.delete(where={"doc_id": doc_id})
-        logger.info("Deleted all chunks for doc_id=%s", doc_id)
+        self.collection.delete(where={"doc_id": doc_id, "user_id": user_id})
+        logger.info("Deleted all chunks for doc_id=%s user_id=%s", doc_id, user_id)
 
     def count(self) -> int:
         return self.collection.count()

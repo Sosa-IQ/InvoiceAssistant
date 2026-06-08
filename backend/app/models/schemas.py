@@ -10,11 +10,21 @@ from pydantic import BaseModel, Field
 
 class BusinessSettingsRead(BaseModel):
     id: int = 1
+    user_id: str
     name: Optional[str] = None
     address: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     logo_path: Optional[str] = None
+    tax_id: Optional[str] = None
+    default_currency: str = "USD"
+    default_tax_pct: float = 0.0
+    payment_terms: str = "Net 30"
+    bank_name: Optional[str] = None
+    account_name: Optional[str] = None
+    account_number: Optional[str] = None
+    routing_number: Optional[str] = None
+    payment_notes: Optional[str] = None
     updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
@@ -26,6 +36,15 @@ class BusinessSettingsUpdate(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     logo_path: Optional[str] = None
+    tax_id: Optional[str] = None
+    default_currency: Optional[str] = None
+    default_tax_pct: Optional[float] = None
+    payment_terms: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_name: Optional[str] = None
+    account_number: Optional[str] = None
+    routing_number: Optional[str] = None
+    payment_notes: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +75,7 @@ class ClientCreate(BaseModel):
 
 class ClientRead(BaseModel):
     id: int
+    user_id: str
     name: str
     email: Optional[str] = None
     phone: Optional[str] = None
@@ -87,6 +107,7 @@ class CatalogItemCreate(BaseModel):
 
 class CatalogItemRead(BaseModel):
     id: int
+    user_id: str
     description: str
     unit_price: float
     unit: str
@@ -120,8 +141,10 @@ class CatalogRecommendationRead(BaseModel):
 
 class InvoiceRecordRead(BaseModel):
     id: int
+    user_id: str
     filename: str
     file_path: str
+    storage_path: Optional[str] = None
     source: str
     invoice_number: Optional[str] = None
     client_name: Optional[str] = None
@@ -215,3 +238,22 @@ class GenerateInvoiceRequest(BaseModel):
 class GenerateInvoiceResponse(BaseModel):
     invoice: InvoiceData
     rag_docs_used: int = 0
+
+
+class ProfileRead(BaseModel):
+    id: str
+    email: str
+    display_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AuthSignupRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+    password: str = Field(..., min_length=8, max_length=255)
+    display_name: Optional[str] = Field(default=None, max_length=255)
+
+
+class AuthMeResponse(BaseModel):
+    user: ProfileRead

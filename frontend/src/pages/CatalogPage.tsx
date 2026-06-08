@@ -32,7 +32,7 @@ import {
 } from "@/api/catalog"
 import type { CatalogItem, CatalogRecommendation } from "@/types/invoice"
 
-type ItemFormData = Omit<CatalogItem, "id" | "created_at" | "updated_at">
+type ItemFormData = Omit<CatalogItem, "id" | "user_id" | "created_at" | "updated_at">
 
 export default function CatalogPage() {
   const qc = useQueryClient()
