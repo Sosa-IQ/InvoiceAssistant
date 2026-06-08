@@ -95,7 +95,7 @@ async def upload_invoices(
 ) -> BulkUploadResponse:
     """
     Upload one or more historical invoice PDFs.
-    Each file is parsed, chunked, embedded in ChromaDB, and recorded in the DB.
+    Each file is parsed, chunked, embedded into Supabase pgvector, and recorded in the DB.
     Processing continues even if individual files fail (partial-success).
     """
     vector_store = request.app.state.vector_store
@@ -129,7 +129,7 @@ async def upload_invoices(
             file_path=str(file_path),
             storage_path=storage_path,
             source="uploaded",
-            chroma_doc_id=doc_id,
+            rag_doc_id=doc_id,
             status="processing",
         )
         db.add(record)
@@ -154,10 +154,13 @@ async def upload_invoices(
 
         # 4. Chunk + embed
         chunks = parser.chunk_text(text)
-        vector_store.add_document(
+        await vector_store.add_document(
+            db,
             doc_id=doc_id,
+            user_id=current_user.id,
+            invoice_record_id=record.id,
+            filename=filename,
             chunks=chunks,
-            metadata={"filename": filename, "user_id": current_user.id},
         )
 
         # 5. Extract metadata hints and finalize record
@@ -343,7 +346,7 @@ async def generate_invoice(
     # 5. Retrieve RAG context
     vector_store = request.app.state.vector_store
     rag_svc = RAGService(vector_store)
-    rag_context, docs_used = rag_svc.get_context(body.prompt, current_user.id)
+    rag_context, docs_used = await rag_svc.get_context(db, body.prompt, current_user.id)
 
     # 6. Call OpenAI
     try:
@@ -527,7 +530,7 @@ async def index_invoice(
     db: AsyncSession = Depends(get_db),
 ) -> InvoiceRecordRead:
     """
-    Add (or re-index) an exported invoice into the RAG vector store.
+    Add (or re-index) an exported invoice into the Supabase vector store.
     Uses the stored invoice JSON instead of re-parsing the PDF.
     """
     res = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id, InvoiceRecord.user_id == current_user.id))
@@ -544,15 +547,22 @@ async def index_invoice(
     vector_store = request.app.state.vector_store
 
     # Remove old vectors if previously indexed
-    if record.chroma_doc_id:
-        vector_store.delete_document(record.chroma_doc_id, current_user.id)
-        logger.info("Removed old vectors for record id=%d (doc_id=%s)", record_id, record.chroma_doc_id)
+    if record.rag_doc_id:
+        await vector_store.delete_document(db, doc_id=record.rag_doc_id, user_id=current_user.id)
+        logger.info("Removed old vectors for record id=%d (doc_id=%s)", record_id, record.rag_doc_id)
 
     doc_id = str(uuid.uuid4())
     chunks = parser.chunk_text(text)
-    vector_store.add_document(doc_id, chunks, {"filename": record.filename, "user_id": current_user.id})
+    await vector_store.add_document(
+        db,
+        doc_id=doc_id,
+        user_id=current_user.id,
+        invoice_record_id=record.id,
+        filename=record.filename,
+        chunks=chunks,
+    )
 
-    record.chroma_doc_id = doc_id
+    record.rag_doc_id = doc_id
     await db.commit()
     await db.refresh(record)
 
@@ -567,17 +577,17 @@ async def delete_invoice(
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Delete an invoice record, its PDF file, and any ChromaDB vectors."""
+    """Delete an invoice record, its PDF file, and any stored vector chunks."""
     res = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id, InvoiceRecord.user_id == current_user.id))
     record = res.scalar_one_or_none()
     if not record:
         raise HTTPException(404, "Invoice record not found.")
 
-    # Remove vectors from ChromaDB if indexed
-    if record.chroma_doc_id:
+    # Remove vectors from Supabase if indexed
+    if record.rag_doc_id:
         vector_store = request.app.state.vector_store
-        vector_store.delete_document(record.chroma_doc_id, current_user.id)
-        logger.info("Removed vectors for doc_id=%s", record.chroma_doc_id)
+        await vector_store.delete_document(db, doc_id=record.rag_doc_id, user_id=current_user.id)
+        logger.info("Removed vectors for doc_id=%s", record.rag_doc_id)
 
     # Delete the PDF file from disk (best-effort)
     pdf_path = Path(record.file_path)

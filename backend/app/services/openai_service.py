@@ -115,9 +115,21 @@ def _extract_json(raw: str) -> dict:
 
 class OpenAIService:
     MAX_RETRIES = 2
+    EMBEDDING_MODEL = "text-embedding-3-small"
 
     def __init__(self) -> None:
         self.client = OpenAI(api_key=settings.openai_api_key)
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """Return embeddings for one or more text inputs."""
+        if not texts:
+            return []
+
+        response = self.client.embeddings.create(
+            model=self.EMBEDDING_MODEL,
+            input=texts,
+        )
+        return [list(item.embedding) for item in response.data]
 
     def generate_invoice(
         self,

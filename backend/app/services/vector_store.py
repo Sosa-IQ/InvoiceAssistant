@@ -1,122 +1,155 @@
 import logging
+from dataclasses import dataclass
+from datetime import datetime
+import json
 
-import chromadb
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
+from app.services.openai_service import OpenAIService
 
 logger = logging.getLogger(__name__)
 
-COLLECTION_NAME = "invoices"
+
+@dataclass
+class VectorHit:
+    text: str
+    filename: str
+    doc_id: str
+    chunk_index: int
+    distance: float
 
 
 class VectorStoreService:
-    """
-    Wraps ChromaDB for storing and querying invoice embeddings.
+    """Store and query invoice embeddings in Supabase Postgres via pgvector."""
 
-    Must be instantiated once at app startup and reused across requests.
-    Uses ChromaDB's default embedding function (all-MiniLM-L6-v2).
-    On first run, the model (~90MB) is downloaded automatically.
-    """
+    def __init__(self, openai_service: OpenAIService) -> None:
+        self.openai = openai_service
 
-    def __init__(self) -> None:
-        logger.info("Initializing ChromaDB at %s", settings.chroma_dir)
-        self.client = chromadb.PersistentClient(path=str(settings.chroma_dir))
-        self.collection = self.client.get_or_create_collection(
-            name=COLLECTION_NAME,
-            # Default embedding function = sentence-transformers all-MiniLM-L6-v2
-        )
-        logger.info(
-            "ChromaDB ready. Collection '%s' has %d documents.",
-            COLLECTION_NAME,
-            self.collection.count(),
-        )
+    @staticmethod
+    def _vector_literal(values: list[float]) -> str:
+        return json.dumps(values, separators=(",", ":"))
 
-    def warmup(self) -> None:
-        """
-        Force the embedding model to download/load on startup.
-        Prevents a slow first-request experience.
-        """
-        logger.info(
-            "Warming up embedding model (may download ~90MB on first run)..."
-        )
-        try:
-            self.collection.query(query_texts=["warmup"], n_results=1)
-            logger.info("Embedding model ready.")
-        except Exception:
-            # Collection may be empty on first run — that's fine
-            logger.info("Embedding model ready (collection is empty).")
-
-    def add_document(
+    async def add_document(
         self,
+        db: AsyncSession,
+        *,
         doc_id: str,
+        user_id: str,
+        invoice_record_id: int,
+        filename: str,
         chunks: list[str],
-        metadata: dict,
     ) -> None:
-        """
-        Embed and store all chunks for a single document.
-
-        Args:
-            doc_id: Unique document identifier (UUID).
-            chunks: List of text chunks from the document.
-            metadata: Shared metadata dict for all chunks (filename, etc.).
-        """
         if not chunks:
             return
 
-        ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
-        metadatas = [
-            {**metadata, "doc_id": doc_id, "chunk_index": i}
-            for i in range(len(chunks))
-        ]
-
-        self.collection.add(
-            documents=chunks,
-            metadatas=metadatas,
-            ids=ids,
+        embeddings = self.openai.embed_texts(chunks)
+        statement = text(
+            """
+            INSERT INTO invoice_embeddings (
+                doc_id,
+                user_id,
+                invoice_record_id,
+                filename,
+                chunk_index,
+                content,
+                embedding
+            )
+            VALUES (
+                CAST(:doc_id AS UUID),
+                CAST(:user_id AS UUID),
+                :invoice_record_id,
+                :filename,
+                :chunk_index,
+                :content,
+                CAST(:embedding AS extensions.vector)
+            )
+            ON CONFLICT (doc_id, chunk_index)
+            DO UPDATE SET
+                invoice_record_id = EXCLUDED.invoice_record_id,
+                filename = EXCLUDED.filename,
+                content = EXCLUDED.content,
+                embedding = EXCLUDED.embedding
+            """
         )
-        logger.info("Added %d chunks for doc_id=%s", len(chunks), doc_id)
 
-    def query(
+        for chunk_index, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
+            await db.execute(
+                statement,
+                {
+                    "doc_id": doc_id,
+                    "user_id": user_id,
+                    "invoice_record_id": invoice_record_id,
+                    "filename": filename,
+                    "chunk_index": chunk_index,
+                    "content": chunk,
+                    "embedding": self._vector_literal(embedding),
+                },
+            )
+
+        logger.info(
+            "Stored %d embedded chunks in Supabase for doc_id=%s at %s",
+            len(chunks),
+            doc_id,
+            datetime.utcnow().isoformat(),
+        )
+
+    async def query(
         self,
+        db: AsyncSession,
+        *,
         query_text: str,
         user_id: str,
         n_results: int = 5,
         distance_threshold: float = 0.8,
-    ) -> list[dict]:
-        """
-        Retrieve the most similar chunks for a query string.
-
-        Returns:
-            List of dicts with keys: text, metadata, distance.
-            Filtered to distance <= distance_threshold.
-        """
-        count = self.collection.count()
-        if count == 0:
-            return []
-
-        actual_n = min(n_results, count)
-        results = self.collection.query(
-            query_texts=[query_text],
-            n_results=actual_n,
-            include=["documents", "metadatas", "distances"],
-            where={"user_id": user_id},
+    ) -> list[VectorHit]:
+        embedding = self.openai.embed_texts([query_text])[0]
+        result = await db.execute(
+            text(
+                """
+                SELECT
+                    content,
+                    filename,
+                    doc_id::text AS doc_id,
+                    chunk_index,
+                    embedding <=> CAST(:embedding AS extensions.vector) AS distance
+                FROM invoice_embeddings
+                WHERE user_id = CAST(:user_id AS UUID)
+                ORDER BY embedding <=> CAST(:embedding AS extensions.vector)
+                LIMIT :limit
+                """
+            ),
+            {
+                "embedding": self._vector_literal(embedding),
+                "user_id": user_id,
+                "limit": n_results,
+            },
         )
 
-        hits = []
-        documents = results["documents"][0]
-        metadatas = results["metadatas"][0]
-        distances = results["distances"][0]
-
-        for doc, meta, dist in zip(documents, metadatas, distances):
-            if dist <= distance_threshold:
-                hits.append({"text": doc, "metadata": meta, "distance": dist})
-
+        hits: list[VectorHit] = []
+        for row in result.mappings():
+            distance = float(row["distance"])
+            if distance <= distance_threshold:
+                hits.append(
+                    VectorHit(
+                        text=row["content"],
+                        filename=row["filename"],
+                        doc_id=row["doc_id"],
+                        chunk_index=row["chunk_index"],
+                        distance=distance,
+                    )
+                )
         return hits
 
-    def delete_document(self, doc_id: str, user_id: str) -> None:
-        """Remove all chunks belonging to a document."""
-        self.collection.delete(where={"doc_id": doc_id, "user_id": user_id})
-        logger.info("Deleted all chunks for doc_id=%s user_id=%s", doc_id, user_id)
-
-    def count(self) -> int:
-        return self.collection.count()
+    async def delete_document(self, db: AsyncSession, *, doc_id: str, user_id: str) -> None:
+        await db.execute(
+            text(
+                """
+                DELETE FROM invoice_embeddings
+                WHERE doc_id = CAST(:doc_id AS UUID)
+                  AND user_id = CAST(:user_id AS UUID)
+                """
+            ),
+            {"doc_id": doc_id, "user_id": user_id},
+        )
+        logger.info("Deleted Supabase vector chunks for doc_id=%s user_id=%s", doc_id, user_id)

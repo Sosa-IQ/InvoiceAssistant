@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
+from app.services.openai_service import OpenAIService
 from app.services.supabase_service import SupabaseService
 from app.services.vector_store import VectorStoreService
 
@@ -27,10 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     supabase = SupabaseService()
     await supabase.ensure_bucket()
 
-    # Initialize ChromaDB (singleton — shared across all requests)
-    vector_store = VectorStoreService()
-    vector_store.warmup()  # downloads embedding model if needed
-    app.state.vector_store = vector_store
+    app.state.vector_store = VectorStoreService(OpenAIService())
 
     logger.info("Invoice Assistant API is ready.")
     yield

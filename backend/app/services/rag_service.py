@@ -1,5 +1,7 @@
 import logging
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.services.vector_store import VectorStoreService
 
 logger = logging.getLogger(__name__)
@@ -7,16 +9,22 @@ logger = logging.getLogger(__name__)
 
 class RAGService:
     """
-    Retrieves relevant invoice chunks from ChromaDB and formats a context block
+    Retrieves relevant invoice chunks from Supabase pgvector and formats a context block
     suitable for inclusion in an OpenAI prompt.
     """
 
     def __init__(self, vector_store: VectorStoreService) -> None:
         self.vector_store = vector_store
 
-    def get_context(self, prompt: str, user_id: str, max_docs: int = 3) -> tuple[str, int]:
+    async def get_context(
+        self,
+        db: AsyncSession,
+        prompt: str,
+        user_id: str,
+        max_docs: int = 3,
+    ) -> tuple[str, int]:
         """
-        Query ChromaDB for the most relevant chunks, deduplicate by source
+        Query Supabase for the most relevant chunks, deduplicate by source
         document, and return a formatted context string.
 
         Args:
@@ -26,15 +34,15 @@ class RAGService:
         Returns:
             (context_text, num_unique_docs_used)
         """
-        hits = self.vector_store.query(prompt, user_id=user_id, n_results=5)
+        hits = await self.vector_store.query(db, query_text=prompt, user_id=user_id, n_results=5)
         if not hits:
             return "", 0
 
         # Deduplicate: one entry per doc_id, preserving relevance order
         seen: set[str] = set()
-        unique_hits: list[dict] = []
+        unique_hits = []
         for hit in hits:
-            doc_id = hit["metadata"].get("doc_id", "")
+            doc_id = hit.doc_id
             if doc_id not in seen:
                 seen.add(doc_id)
                 unique_hits.append(hit)
@@ -43,8 +51,7 @@ class RAGService:
 
         parts = []
         for i, hit in enumerate(unique_hits, start=1):
-            filename = hit["metadata"].get("filename", "unknown")
-            parts.append(f"[Document {i} — {filename}]\n{hit['text']}")
+            parts.append(f"[Document {i} - {hit.filename}]\n{hit.text}")
 
         context = "\n\n---\n\n".join(parts)
         logger.info("RAG returned %d unique docs for prompt.", len(unique_hits))

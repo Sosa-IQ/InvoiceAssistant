@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     speechmatics_api_key: str = ""
     data_dir: Path = Path("./data")
-    chroma_dir: Path = Path("./data/chroma")
     database_url: str
     max_upload_size_mb: int = 20
     supabase_url: str = ""
