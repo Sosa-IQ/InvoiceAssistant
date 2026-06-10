@@ -1,21 +1,16 @@
-import { createContext, useContext, useEffect, useState } from "react"
-import type { Session, User } from "@supabase/supabase-js"
+import { useEffect, useRef, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import type { Session } from "@supabase/supabase-js"
 import { toast } from "sonner"
+import { AuthContext } from "@/auth/AuthContext"
 import { getCurrentUserProfile } from "@/api/auth"
 import { isSupabaseConfigured, supabase } from "@/lib/supabase"
 
-type AuthContextValue = {
-  session: Session | null
-  user: User | null
-  loading: boolean
-  signOut: () => Promise<void>
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null)
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient()
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const previousUserIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -24,6 +19,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     async function bootstrapSession(nextSession: Session | null) {
+      const nextUserId = nextSession?.user.id ?? null
+      if (previousUserIdRef.current !== nextUserId) {
+        queryClient.clear()
+        previousUserIdRef.current = nextUserId
+      }
+
       setSession(nextSession)
       if (!nextSession) {
         setLoading(false)
@@ -52,7 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     return () => subscription.unsubscribe()
-  }, [])
+  }, [queryClient])
 
   return (
     <AuthContext.Provider
@@ -68,10 +69,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       {children}
     </AuthContext.Provider>
   )
-}
-
-export function useAuth() {
-  const value = useContext(AuthContext)
-  if (!value) throw new Error("useAuth must be used within AuthProvider.")
-  return value
 }

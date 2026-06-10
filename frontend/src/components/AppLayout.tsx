@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { NavLink, Outlet } from "react-router-dom"
 import { FileText, LogOut, Moon, Package, PlusCircle, Settings, Sun, Users } from "lucide-react"
 import { toast } from "sonner"
-import { useAuth } from "@/auth/AuthProvider"
+import { useAuth } from "@/auth/AuthContext"
 import { cn } from "@/lib/utils"
 
 const NAV = [

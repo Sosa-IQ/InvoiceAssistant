@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { isSupabaseConfigured, missingSupabaseEnvVars, supabase } from "@/lib/supabase"
-import { useAuth } from "@/auth/AuthProvider"
+import { useAuth } from "@/auth/AuthContext"
 
 type AuthFormData = {
   email: string

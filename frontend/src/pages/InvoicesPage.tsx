@@ -108,7 +108,7 @@ export default function InvoicesPage() {
   }
 
   async function handleIndex(r: InvoiceRecord) {
-    const isReindex = !!r.chroma_doc_id
+    const isReindex = !!r.rag_doc_id
     setIndexingId(r.id)
     try {
       await indexInvoice(r.id)
@@ -238,20 +238,20 @@ export default function InvoicesPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className={`h-7 w-7 ${r.chroma_doc_id ? "text-green-600 hover:text-green-700" : "text-muted-foreground"}`}
+                          className={`h-7 w-7 ${r.rag_doc_id ? "text-green-600 hover:text-green-700" : "text-muted-foreground"}`}
                           onClick={() => handleIndex(r)}
                           disabled={!r.invoice_json || indexingId === r.id}
                           title={
                             !r.invoice_json
                               ? "Re-export this invoice to enable indexing"
-                              : r.chroma_doc_id
+                              : r.rag_doc_id
                               ? "Re-index (already in training set)"
                               : "Add to training set"
                           }
                         >
                           {indexingId === r.id
                             ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            : r.chroma_doc_id
+                            : r.rag_doc_id
                             ? <RefreshCw className="h-3.5 w-3.5" />
                             : <BookOpen className="h-3.5 w-3.5" />}
                         </Button>

@@ -54,7 +54,7 @@ export interface InvoiceRecord {
   issue_date: string | null
   grand_total: number | null
   currency: string
-  chroma_doc_id: string | null
+  rag_doc_id: string | null
   status: string
   invoice_json: string | null
   created_at: string | null

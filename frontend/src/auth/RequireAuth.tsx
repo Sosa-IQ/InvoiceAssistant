@@ -1,6 +1,6 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom"
 import { Loader2 } from "lucide-react"
-import { useAuth } from "./AuthProvider"
+import { useAuth } from "./AuthContext"
 
 export default function RequireAuth() {
   const { user, loading } = useAuth()
