@@ -67,6 +67,7 @@ class ClientAddress(Base):
     __tablename__ = "client_addresses"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True)
     client_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -120,4 +121,24 @@ class InvoiceRecord(Base):
     rag_doc_id: Mapped[str | None] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, default="draft")
     invoice_json: Mapped[str | None] = mapped_column(Text)  # full InvoiceData JSON, stored at export time
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class InvoiceEmail(Base):
+    __tablename__ = "invoice_emails"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True)
+    invoice_record_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("invoice_records.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    recipient_email: Mapped[str] = mapped_column(String, nullable=False)
+    cc_email: Mapped[str | None] = mapped_column(String)
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    message_body: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    provider: Mapped[str] = mapped_column(String, nullable=False, default="smtp")
+    provider_message_id: Mapped[str | None] = mapped_column(String)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

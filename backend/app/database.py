@@ -81,12 +81,21 @@ async def _ensure_postgres_columns(conn: AsyncEngine | AsyncSession) -> None:
         "ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS payment_notes TEXT",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS user_id UUID",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS client_code VARCHAR(32)",
+        "ALTER TABLE client_addresses ADD COLUMN IF NOT EXISTS user_id UUID",
         "ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS user_id UUID",
         "ALTER TABLE invoice_records ADD COLUMN IF NOT EXISTS user_id UUID",
         "ALTER TABLE invoice_records ADD COLUMN IF NOT EXISTS storage_path VARCHAR",
         "ALTER TABLE invoice_records ADD COLUMN IF NOT EXISTS client_id BIGINT",
         "ALTER TABLE invoice_records ADD COLUMN IF NOT EXISTS client_invoice_sequence INTEGER",
         "ALTER TABLE invoice_records ADD COLUMN IF NOT EXISTS rag_doc_id VARCHAR",
+        """
+        UPDATE client_addresses AS ca
+        SET user_id = c.user_id
+        FROM clients AS c
+        WHERE ca.client_id = c.id
+          AND ca.user_id IS NULL
+          AND c.user_id IS NOT NULL
+        """,
         """
         CREATE TABLE IF NOT EXISTS invoice_embeddings (
             id BIGSERIAL PRIMARY KEY,
@@ -101,8 +110,28 @@ async def _ensure_postgres_columns(conn: AsyncEngine | AsyncSession) -> None:
             CONSTRAINT uq_invoice_embeddings_doc_chunk UNIQUE (doc_id, chunk_index)
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS invoice_emails (
+            id BIGSERIAL PRIMARY KEY,
+            user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            invoice_record_id BIGINT NOT NULL REFERENCES invoice_records(id) ON DELETE CASCADE,
+            recipient_email VARCHAR NOT NULL,
+            cc_email VARCHAR,
+            subject VARCHAR NOT NULL,
+            message_body TEXT NOT NULL,
+            status VARCHAR NOT NULL DEFAULT 'pending',
+            provider VARCHAR NOT NULL DEFAULT 'smtp',
+            provider_message_id VARCHAR,
+            error_message TEXT,
+            sent_at TIMESTAMP WITHOUT TIME ZONE,
+            created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now()
+        )
+        """,
         "CREATE INDEX IF NOT EXISTS idx_invoice_embeddings_user_id ON invoice_embeddings(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_invoice_embeddings_record_id ON invoice_embeddings(invoice_record_id)",
+        "CREATE INDEX IF NOT EXISTS idx_client_addresses_user_id ON client_addresses(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_invoice_emails_user_id ON invoice_emails(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_invoice_emails_record_id ON invoice_emails(invoice_record_id)",
         """
         CREATE INDEX IF NOT EXISTS idx_invoice_embeddings_embedding_hnsw
         ON invoice_embeddings

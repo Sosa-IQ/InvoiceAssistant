@@ -126,7 +126,7 @@ async def add_client_address(
     result = await db.execute(select(Client).where(Client.id == client_id, Client.user_id == current_user.id))
     if not result.scalar_one_or_none():
         raise HTTPException(404, f"Client {client_id} not found.")
-    addr = ClientAddress(client_id=client_id, **body.model_dump())
+    addr = ClientAddress(user_id=current_user.id, client_id=client_id, **body.model_dump())
     db.add(addr)
     await db.commit()
     await db.refresh(addr)
@@ -146,6 +146,7 @@ async def update_client_address(
         select(ClientAddress).join(Client, Client.id == ClientAddress.client_id).where(
             ClientAddress.id == address_id,
             ClientAddress.client_id == client_id,
+            ClientAddress.user_id == current_user.id,
             Client.user_id == current_user.id,
         )
     )
@@ -170,6 +171,7 @@ async def delete_client_address(
         select(ClientAddress).join(Client, Client.id == ClientAddress.client_id).where(
             ClientAddress.id == address_id,
             ClientAddress.client_id == client_id,
+            ClientAddress.user_id == current_user.id,
             Client.user_id == current_user.id,
         )
     )

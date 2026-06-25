@@ -2,8 +2,11 @@ import type {
   BulkUploadResponse,
   GenerateInvoiceResponse,
   InvoiceData,
+  InvoiceEmail,
   InvoiceRecord,
   NextInvoiceNumberResponse,
+  SendInvoiceRequest,
+  SendInvoiceResponse,
 } from "@/types/invoice"
 import api from "./client"
 
@@ -52,6 +55,13 @@ export async function openInvoicePdf(recordId: number): Promise<void> {
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
+export async function downloadInvoicePdf(recordId: number): Promise<Blob> {
+  const { data } = await api.get<Blob>(`/api/invoices/${recordId}/download`, {
+    responseType: "blob",
+  })
+  return data
+}
+
 export async function indexInvoice(recordId: number): Promise<InvoiceRecord> {
   const { data } = await api.post<InvoiceRecord>(`/api/invoices/${recordId}/index`)
   return data
@@ -59,4 +69,14 @@ export async function indexInvoice(recordId: number): Promise<InvoiceRecord> {
 
 export async function deleteInvoice(recordId: number): Promise<void> {
   await api.delete(`/api/invoices/${recordId}`)
+}
+
+export async function listInvoiceEmails(recordId: number): Promise<InvoiceEmail[]> {
+  const { data } = await api.get<InvoiceEmail[]>(`/api/invoices/${recordId}/emails`)
+  return data
+}
+
+export async function sendInvoice(recordId: number, payload: SendInvoiceRequest): Promise<SendInvoiceResponse> {
+  const { data } = await api.post<SendInvoiceResponse>(`/api/invoices/${recordId}/send`, payload)
+  return data
 }

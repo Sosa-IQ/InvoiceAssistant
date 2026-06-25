@@ -1,7 +1,21 @@
+import re
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _validate_optional_email(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if not EMAIL_RE.match(normalized):
+        raise ValueError("Invalid email address.")
+    return normalized
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +60,11 @@ class BusinessSettingsUpdate(BaseModel):
     routing_number: Optional[str] = None
     payment_notes: Optional[str] = None
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_optional_email(value)
+
 
 # ---------------------------------------------------------------------------
 # Clients
@@ -58,6 +77,7 @@ class ClientAddressCreate(BaseModel):
 
 class ClientAddressRead(BaseModel):
     id: int
+    user_id: str
     client_id: int
     label: Optional[str] = None
     address: str
@@ -71,6 +91,11 @@ class ClientCreate(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     notes: Optional[str] = None
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_optional_email(value)
 
 
 class ClientRead(BaseModel):
@@ -93,6 +118,11 @@ class ClientUpdate(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     notes: Optional[str] = None
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_optional_email(value)
 
 
 # ---------------------------------------------------------------------------
@@ -267,3 +297,30 @@ class AuthSignupRequest(BaseModel):
 
 class AuthMeResponse(BaseModel):
     user: ProfileRead
+
+
+class InvoiceEmailRead(BaseModel):
+    id: int
+    user_id: str
+    invoice_record_id: int
+    recipient_email: str
+    cc_email: Optional[str] = None
+    subject: str
+    message_body: str
+    status: str
+    provider: str
+    provider_message_id: Optional[str] = None
+    error_message: Optional[str] = None
+    sent_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class SendInvoiceRequest(BaseModel):
+    subject: str = Field(..., min_length=1, max_length=200)
+    message: str = Field(..., min_length=1, max_length=5000)
+
+
+class SendInvoiceResponse(BaseModel):
+    email: InvoiceEmailRead

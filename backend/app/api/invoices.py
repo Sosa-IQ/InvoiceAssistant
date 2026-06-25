@@ -3,6 +3,7 @@ import json
 import logging
 import uuid
 from datetime import date
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -14,16 +15,20 @@ from sqlalchemy.orm import selectinload
 
 from app.auth import AuthenticatedUser, get_current_user
 from app.database import get_db
-from app.models.db_models import BusinessSettings, CatalogItem, Client, InvoiceRecord
+from app.models.db_models import BusinessSettings, CatalogItem, Client, InvoiceEmail, InvoiceRecord
 from app.models.schemas import (
     BulkUploadResponse,
     GenerateInvoiceRequest,
     GenerateInvoiceResponse,
     InvoiceData,
+    InvoiceEmailRead,
     InvoiceRecordRead,
     NextInvoiceNumberResponse,
+    SendInvoiceRequest,
+    SendInvoiceResponse,
     UploadResult,
 )
+from app.services.email_service import EmailService
 from app.services.invoice_numbering import (
     ensure_client_code,
     format_invoice_number,
@@ -42,6 +47,7 @@ storage = StorageService()
 parser = PDFParserService()
 openai_svc = OpenAIService()
 pdf_gen = PDFGeneratorService()
+email_svc = EmailService()
 
 
 async def _get_owned_client(
@@ -84,6 +90,30 @@ async def _next_invoice_preview(
 async def _business_settings(db: AsyncSession, user_id: str) -> BusinessSettings | None:
     settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.user_id == user_id))
     return settings_result.scalar_one_or_none()
+
+
+async def _get_owned_invoice_record(
+    db: AsyncSession,
+    user_id: str,
+    record_id: int,
+) -> InvoiceRecord:
+    result = await db.execute(
+        select(InvoiceRecord).where(InvoiceRecord.id == record_id, InvoiceRecord.user_id == user_id)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(404, "Invoice record not found.")
+    return record
+
+
+async def _load_record_pdf_bytes(record: InvoiceRecord) -> bytes:
+    if record.storage_path:
+        return await storage.supabase.download_bytes(record.storage_path)
+
+    path = Path(record.file_path)
+    if not path.exists():
+        raise HTTPException(404, "PDF file not found on disk.")
+    return path.read_bytes()
 
 
 @router.post("/upload", response_model=BulkUploadResponse)
@@ -257,24 +287,27 @@ async def view_invoice_pdf(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Return the stored PDF for a given invoice record (inline, for browser preview)."""
-    result = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id, InvoiceRecord.user_id == current_user.id))
-    record = result.scalar_one_or_none()
-    if not record:
-        raise HTTPException(404, "Invoice record not found.")
-    if record.storage_path:
-        pdf_bytes = await storage.supabase.download_bytes(record.storage_path)
-        return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="{record.filename}"'},
-        )
-    path = Path(record.file_path)
-    if not path.exists():
-        raise HTTPException(404, "PDF file not found on disk.")
+    record = await _get_owned_invoice_record(db, current_user.id, record_id)
+    pdf_bytes = await _load_record_pdf_bytes(record)
     return Response(
-        content=path.read_bytes(),
+        content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{record.filename}"'},
+    )
+
+
+@router.get("/{record_id}/download")
+async def download_invoice_pdf(
+    record_id: int,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    record = await _get_owned_invoice_record(db, current_user.id, record_id)
+    pdf_bytes = await _load_record_pdf_bytes(record)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{record.filename}"'},
     )
 
 
@@ -598,3 +631,92 @@ async def delete_invoice(
     await db.delete(record)
     await db.commit()
     logger.info("Deleted invoice record id=%d", record_id)
+
+
+@router.get("/{record_id}/emails", response_model=list[InvoiceEmailRead])
+async def list_invoice_emails(
+    record_id: int,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[InvoiceEmailRead]:
+    await _get_owned_invoice_record(db, current_user.id, record_id)
+    result = await db.execute(
+        select(InvoiceEmail)
+        .where(InvoiceEmail.invoice_record_id == record_id, InvoiceEmail.user_id == current_user.id)
+        .order_by(InvoiceEmail.created_at.desc())
+    )
+    return [InvoiceEmailRead.model_validate(email) for email in result.scalars().all()]
+
+
+@router.post("/{record_id}/send", response_model=SendInvoiceResponse)
+async def send_invoice(
+    record_id: int,
+    body: SendInvoiceRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SendInvoiceResponse:
+    record = await _get_owned_invoice_record(db, current_user.id, record_id)
+    if record.status != "exported":
+        raise HTTPException(422, "Only exported invoices can be emailed.")
+    if not record.invoice_json:
+        raise HTTPException(422, "This invoice does not have saved invoice data for email sending.")
+
+    try:
+        invoice = InvoiceData.model_validate(json.loads(record.invoice_json))
+    except Exception as exc:
+        raise HTTPException(422, f"Could not read saved invoice data: {exc}") from exc
+
+    recipient_email = (invoice.to.email or "").strip()
+    if not recipient_email:
+        raise HTTPException(422, "Client email is required before sending.")
+
+    business_name = (invoice.from_.name or "").strip() or "Invoice Assistant"
+    reply_to_email = (
+        (invoice.from_.email or "").strip()
+        or (current_user.email or "").strip()
+        or None
+    )
+    cc_email = current_user.email.strip() if current_user.email else None
+    pdf_bytes = await _load_record_pdf_bytes(record)
+    email_record = InvoiceEmail(
+        user_id=current_user.id,
+        invoice_record_id=record.id,
+        recipient_email=recipient_email,
+        cc_email=cc_email,
+        subject=body.subject.strip(),
+        message_body=body.message.strip(),
+        status="pending",
+        provider=email_svc.provider,
+    )
+    db.add(email_record)
+    await db.commit()
+    await db.refresh(email_record)
+
+    try:
+        provider_message_id = await email_svc.send_invoice_email(
+            recipient_email=recipient_email,
+            cc_email=cc_email,
+            reply_to_email=reply_to_email,
+            from_display_name=business_name,
+            subject=email_record.subject,
+            message=email_record.message_body,
+            attachment_filename=record.filename,
+            attachment_bytes=pdf_bytes,
+        )
+    except Exception as exc:
+        email_record.status = "failed"
+        email_record.error_message = str(exc)
+        await db.commit()
+        await db.refresh(email_record)
+        logger.error("Failed to send invoice id=%d email id=%d: %s", record_id, email_record.id, exc)
+        raise HTTPException(502, f"Email send failed: {exc}") from exc
+
+    email_record.status = "sent"
+    email_record.provider_message_id = provider_message_id
+    email_record.error_message = None
+    email_record.sent_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(email_record)
+
+    logger.info("Sent invoice id=%d to %s", record_id, recipient_email)
+    return SendInvoiceResponse(email=InvoiceEmailRead.model_validate(email_record))

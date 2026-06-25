@@ -88,6 +88,7 @@ export interface NextInvoiceNumberResponse {
 
 export interface ClientAddress {
   id: number
+  user_id: string
   client_id: number
   label: string | null
   address: string
@@ -157,4 +158,29 @@ export interface Profile {
 
 export interface AuthMeResponse {
   user: Profile
+}
+
+export interface InvoiceEmail {
+  id: number
+  user_id: string
+  invoice_record_id: number
+  recipient_email: string
+  cc_email: string | null
+  subject: string
+  message_body: string
+  status: string
+  provider: string
+  provider_message_id: string | null
+  error_message: string | null
+  sent_at: string | null
+  created_at: string | null
+}
+
+export interface SendInvoiceRequest {
+  subject: string
+  message: string
+}
+
+export interface SendInvoiceResponse {
+  email: InvoiceEmail
 }
