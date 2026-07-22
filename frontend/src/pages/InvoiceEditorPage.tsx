@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate, useBlocker, type BlockerFunction } from "react-router-dom"
 import { useForm, useFieldArray, useWatch } from "react-hook-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -183,7 +183,7 @@ export default function InvoiceEditorPage() {
     })
   }
 
-  async function syncInvoiceNumber(clientId: number, force = false) {
+  const syncInvoiceNumber = useCallback(async (clientId: number, force = false) => {
     if (!force && currentInvoiceNumber) return
     try {
       const preview = await getNextInvoiceNumber(clientId)
@@ -191,7 +191,7 @@ export default function InvoiceEditorPage() {
     } catch {
       toast.error("Could not load the next invoice number for this client.")
     }
-  }
+  }, [currentInvoiceNumber, setValue])
 
   function setBillToClient(client: Client, address?: { id: number; address: string } | null) {
     setValue("to.client_id", client.id, { shouldDirty: true })
@@ -284,7 +284,7 @@ export default function InvoiceEditorPage() {
   useEffect(() => {
     if (!billTo?.client_id || currentInvoiceNumber) return
     void syncInvoiceNumber(billTo.client_id)
-  }, [billTo?.client_id, currentInvoiceNumber])
+  }, [billTo?.client_id, currentInvoiceNumber, syncInvoiceNumber])
 
   async function onExport(data: InvoiceData) {
     setIsExporting(true)

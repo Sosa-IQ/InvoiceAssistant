@@ -321,6 +321,16 @@ class SendInvoiceRequest(BaseModel):
     subject: str = Field(..., min_length=1, max_length=200)
     message: str = Field(..., min_length=1, max_length=5000)
 
+    @field_validator("subject", "message")
+    @classmethod
+    def normalize_email_content(cls, value: str, info) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(f"{info.field_name.replace('_', ' ').title()} cannot be blank.")
+        if info.field_name == "subject" and ("\r" in normalized or "\n" in normalized):
+            raise ValueError("Subject must be a single line.")
+        return normalized
+
 
 class SendInvoiceResponse(BaseModel):
     email: InvoiceEmailRead
