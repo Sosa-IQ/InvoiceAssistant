@@ -16,6 +16,8 @@ whichever process last booted, with no version, no review, and no way back.
 | `0001_baseline` | Profiles, business settings, clients, client addresses, catalog items, invoice records, plus the row level security policies and `authenticated` grants for those tables. |
 | `0002_client_numbering` | `clients.client_code`, `invoice_records.client_id` / `client_invoice_sequence`, and the per-user uniqueness constraints behind `INV-{CLIENTCODE}_{sequence}`. |
 | `0003_rag_and_email` | pgvector `invoice_embeddings`, `invoice_emails` history, `invoice_records.storage_path`, the `chroma_doc_id` → `rag_doc_id` rename, and per-user ownership on `client_addresses` (backfilled from each address's client). |
+| `0004_normalize_adopted_schema` | Converges databases created by the former startup DDL: ownership constraints, canonical identity/timestamp/text types, duplicate-index cleanup, RLS policies, and `authenticated` grants. |
+| `0005_restore_email_defaults` | Restores the `status`, `provider`, and `created_at` server defaults omitted by SQLAlchemy-created `invoice_emails` tables. |
 
 ## Prerequisites
 
@@ -44,16 +46,23 @@ Check what is currently applied at any time:
 
 ## Adopting an existing database
 
-A database that already has the current schema — anything created by
-`supabase/setup_invoice_assistant_core.sql` or by the old startup DDL — must
-**not** be replayed from scratch. Record where it already is instead:
+A database created by `supabase/setup_invoice_assistant_core.sql` or maintained by
+the former startup DDL must run the adoption-normalization revision. Take a
+backup first, then record the last pre-adoption revision and upgrade forward:
 
 ```bash
 cd backend
-.venv/bin/alembic stamp head
+.venv/bin/alembic stamp 0003_rag_and_email
+.venv/bin/alembic upgrade head
 ```
 
-This writes the revision into `alembic_version` without running any DDL.
+Do not stamp the newest revision directly. Stamping records a label without
+running DDL; doing so would silently preserve nullable ownership, legacy serial
+and timestamp columns, missing constraints, or missing grants. Revision
+`0004_normalize_adopted_schema` is deliberately idempotent on an already
+canonical database and repairs the known former-runtime shape. Revision
+`0005_restore_email_defaults` completes adoption by restoring server defaults
+that SQLAlchemy-created email tables did not carry.
 
 If a database predates per-client invoice numbering, stamp the revision that
 matches its actual shape and then upgrade forward:
@@ -77,8 +86,12 @@ select 1 from information_schema.columns
 
 ## Rollback
 
-Every revision implements `downgrade`, and the migration tests exercise both a
-single-step rollback and a full teardown against a real PostgreSQL instance.
+Revisions through `0003` implement structural downgrades, and the migration
+tests exercise both a single-step traversal and a full teardown against a real
+PostgreSQL instance. Revisions `0004_normalize_adopted_schema` and
+`0005_restore_email_defaults` are intentional no-ops on downgrade: recreating
+nullable ownership, legacy column types/defaults, missing RLS, or missing grants
+would reintroduce the defects they repair.
 
 Roll back the most recent revision:
 
@@ -144,9 +157,9 @@ fails the build if they ever drift apart.
 ## Tests
 
 The migration tests need a real PostgreSQL instance with pgvector. They are
-skipped unless `TEST_DATABASE_URL` is set, and they refuse to run against a
-managed Supabase host or against `DATABASE_URL`, because they create and drop
-databases.
+skipped unless `TEST_DATABASE_URL` is set, and they refuse every non-loopback
+host, a managed Supabase host, or the configured `DATABASE_URL`, because they
+create and drop databases.
 
 ```bash
 cd backend

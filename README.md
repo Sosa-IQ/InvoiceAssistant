@@ -17,16 +17,24 @@ brew install weasyprint
 
 ## Supabase setup
 
-Run `supabase/setup_invoice_assistant_core.sql` in the Supabase SQL editor. That file is the canonical fresh-install schema.
+Choose one schema bootstrap path:
 
-Schema changes after that are versioned Alembic migrations. The backend no longer alters the schema at startup — it verifies the database is migrated and refuses to start otherwise:
+- **Empty PostgreSQL prepared with Supabase-managed objects:** run
+  `.venv/bin/alembic upgrade head`.
+- **Supabase SQL editor or an existing pre-Alembic deployment:** run
+  `supabase/setup_invoice_assistant_core.sql` when setting up a new project,
+  then adopt at `0003_rag_and_email` and upgrade so normalization executes:
 
 ```bash
 cd backend
+.venv/bin/alembic stamp 0003_rag_and_email
 .venv/bin/alembic upgrade head
 ```
 
-An existing database is adopted with `alembic stamp head`. See [docs/migrations.md](docs/migrations.md) for the revision history, the rollback procedure, and what a rollback costs.
+Do not stamp the newest revision directly. The backend no longer alters schema
+at startup; it verifies the exact migration head and refuses to start otherwise.
+See [docs/migrations.md](docs/migrations.md) for required backups, older starting
+revisions, verification, and rollback costs.
 
 Copy the environment templates and supply your own secrets:
 

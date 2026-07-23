@@ -29,6 +29,7 @@ _ENV_VAR = "TEST_DATABASE_URL"
 # A managed Supabase project is never an acceptable target: these helpers issue
 # DROP DATABASE and rewrite schemas wholesale.
 _FORBIDDEN_HOST_SUFFIXES = (".supabase.co", ".supabase.com", ".supabase.net")
+_ALLOWED_TEST_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 class UnsafeTestDatabaseError(RuntimeError):
@@ -44,6 +45,12 @@ def assert_safe_test_database(url: str) -> None:
             f"{_ENV_VAR} points at a managed Supabase host ({host}). "
             "Tenant-isolation and migration tests create and drop databases and "
             "must only ever run against a disposable local or CI instance."
+        )
+
+    if host not in _ALLOWED_TEST_HOSTS:
+        raise UnsafeTestDatabaseError(
+            f"{_ENV_VAR} must use a loopback PostgreSQL host; found {host or 'none'}. "
+            "Destructive tests are limited to localhost/127.0.0.1/::1."
         )
 
     for source, configured in _application_database_urls():

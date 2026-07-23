@@ -19,7 +19,10 @@ import asyncpg
 import pytest
 
 from tests.support.alembic_runner import run_alembic
-from tests.support.legacy_schema import build_legacy_schema
+from tests.support.legacy_schema import (
+    build_legacy_schema,
+    build_pre_alembic_head_schema,
+)
 from tests.support.postgres import (
     BACKEND_ROOT,
     REPO_ROOT,
@@ -43,6 +46,10 @@ MIGRATIONS_DIR = BACKEND_ROOT / "migrations"
 # before per-client invoice numbering existed.
 LEGACY_STAMP_REVISION = "0001_baseline"
 
+# The final revision that pre-Alembic runtime-DDL deployments were previously
+# told to stamp. A later adoption migration must normalize their actual shape.
+PRE_ALEMBIC_HEAD_STAMP_REVISION = "0003_rag_and_email"
+
 
 # ---------------------------------------------------------------------------
 # Safety rails
@@ -52,6 +59,13 @@ def test_managed_supabase_hosts_are_rejected_as_test_databases() -> None:
     with pytest.raises(UnsafeTestDatabaseError, match="managed Supabase host"):
         assert_safe_test_database(
             "postgresql+asyncpg://postgres:pw@db.abcdefgh.supabase.co:5432/postgres"
+        )
+
+
+def test_arbitrary_remote_hosts_are_rejected_as_test_databases() -> None:
+    with pytest.raises(UnsafeTestDatabaseError, match="loopback"):
+        assert_safe_test_database(
+            "postgresql+asyncpg://postgres:pw@db.internal.example:5432/test"
         )
 
 
@@ -74,13 +88,13 @@ def test_a_database_url_configured_only_in_dotenv_is_still_rejected(
     monkeypatch.delenv("DATABASE_URL", raising=False)
     env_file = tmp_path / ".env"
     env_file.write_text(
-        "DATABASE_URL=postgresql+asyncpg://postgres:pw@db.internal:5432/live_invoices\n"
+        "DATABASE_URL=postgresql+asyncpg://postgres:pw@localhost:5432/live_invoices\n"
     )
     monkeypatch.setattr(postgres_support, "BACKEND_ROOT", tmp_path)
 
     with pytest.raises(UnsafeTestDatabaseError, match="backend/.env"):
         assert_safe_test_database(
-            "postgresql+asyncpg://postgres:pw@db.internal:5432/live_invoices"
+            "postgresql+asyncpg://postgres:pw@localhost:5432/live_invoices"
         )
 
 
@@ -121,6 +135,156 @@ async def test_existing_database_upgrades_to_the_current_schema() -> None:
         expected = await snapshot_schema(clean_url)
         actual = await snapshot_schema(legacy_url)
 
+        assert actual == expected, describe_difference(expected, actual)
+
+
+async def test_pre_alembic_head_adoption_is_normalized_before_becoming_current() -> None:
+    """Stamping the old head must still run a structural adoption migration."""
+    async with scratch_database("ia_adopted") as adopted_url, \
+            scratch_database("ia_adoption_ref") as clean_url:
+        await build_pre_alembic_head_schema(adopted_url)
+
+        conn = await asyncpg.connect(asyncpg_dsn(adopted_url))
+        try:
+            user_id = await conn.fetchval(
+                "insert into auth.users(email) values('adopted@example.com') returning id"
+            )
+            await conn.execute(
+                """
+                insert into public.profiles(id, email, created_at)
+                values($1, 'adopted@example.com', timestamp '2026-01-01 12:00:00')
+                """,
+                user_id,
+            )
+            client_id = await conn.fetchval(
+                """
+                insert into public.clients
+                    (user_id, name, client_code, created_at, updated_at)
+                values($1, 'Adopted Client', 'ADOPTED',
+                       timestamp '2026-01-01 12:00:00',
+                       timestamp '2026-01-01 12:00:00')
+                returning id
+                """,
+                user_id,
+            )
+            await conn.execute(
+                """
+                insert into public.client_addresses
+                    (user_id, client_id, address, created_at)
+                values($1, $2, '1 Migration Way', timestamp '2026-01-01 12:00:00')
+                """,
+                user_id,
+                client_id,
+            )
+            invoice_id = await conn.fetchval(
+                """
+                insert into public.invoice_records
+                    (user_id, client_id, client_invoice_sequence, filename,
+                     file_path, source, currency, status, created_at)
+                values($1, $2, 1, 'adopted.pdf', '/tmp/adopted.pdf', 'generated',
+                       'USD', 'draft', timestamp '2026-01-01 12:00:00')
+                returning id
+                """,
+                user_id,
+                client_id,
+            )
+            embedding_id = await conn.fetchval(
+                """
+                insert into public.invoice_embeddings
+                    (doc_id, user_id, invoice_record_id, filename, chunk_index,
+                     content, embedding, created_at)
+                values(gen_random_uuid(), $1, $2, 'adopted.pdf', 0,
+                       'preserved embedding',
+                       array_fill(0::real, array[1536])::vector,
+                       timestamp '2026-01-01 12:00:00')
+                returning id
+                """,
+                user_id,
+                invoice_id,
+            )
+            email_id = await conn.fetchval(
+                """
+                insert into public.invoice_emails
+                    (user_id, invoice_record_id, recipient_email, subject,
+                     message_body, status, provider, created_at)
+                values($1, $2, 'recipient@example.com', 'Preserve me',
+                       'Migration data', 'pending', 'smtp',
+                       timestamp '2026-01-01 12:00:00')
+                returning id
+                """,
+                user_id,
+                invoice_id,
+            )
+        finally:
+            await conn.close()
+
+        await run_alembic(adopted_url, "stamp", PRE_ALEMBIC_HEAD_STAMP_REVISION)
+        await run_alembic(adopted_url, "upgrade", "head")
+
+        conn = await asyncpg.connect(asyncpg_dsn(adopted_url))
+        try:
+            embedding = await conn.fetchrow(
+                "select id, content, created_at from public.invoice_embeddings where id=$1",
+                embedding_id,
+            )
+            email = await conn.fetchrow(
+                "select id, subject, created_at from public.invoice_emails where id=$1",
+                email_id,
+            )
+            assert embedding["content"] == "preserved embedding"
+            assert embedding["created_at"].utcoffset().total_seconds() == 0
+            assert email["subject"] == "Preserve me"
+            assert email["created_at"].utcoffset().total_seconds() == 0
+            next_email_id = await conn.fetchval(
+                """
+                insert into public.invoice_emails
+                    (user_id, invoice_record_id, recipient_email, subject, message_body)
+                values($1, $2, 'next@example.com', 'Next', 'Identity advanced')
+                returning id
+                """,
+                user_id,
+                invoice_id,
+            )
+            assert next_email_id > email_id
+
+            other_user_id = await conn.fetchval(
+                "insert into auth.users(email) values('other@example.com') returning id"
+            )
+            await conn.execute(
+                "insert into public.profiles(id, email) values($1, 'other@example.com')",
+                other_user_id,
+            )
+            other_client_id = await conn.fetchval(
+                """
+                insert into public.clients(user_id, name, client_code)
+                values($1, 'Other Client', 'OTHER') returning id
+                """,
+                other_user_id,
+            )
+
+            transaction = conn.transaction()
+            await transaction.start()
+            try:
+                await conn.execute("set local role authenticated")
+                await conn.execute(
+                    "select set_config('request.jwt.claim.sub', $1, true)",
+                    str(user_id),
+                )
+                assert await conn.fetchval("select count(*) from public.clients") == 1
+                assert await conn.fetchval(
+                    "select count(*) from public.clients where id=$1",
+                    other_client_id,
+                ) == 0
+            finally:
+                await transaction.rollback()
+        finally:
+            await conn.close()
+
+        await bootstrap_supabase_stubs(clean_url)
+        await run_alembic(clean_url, "upgrade", "head")
+
+        expected = await snapshot_schema(clean_url)
+        actual = await snapshot_schema(adopted_url)
         assert actual == expected, describe_difference(expected, actual)
 
 
@@ -231,6 +395,27 @@ async def test_startup_accepts_a_fully_migrated_database() -> None:
         await database.verify_schema_is_current(url)
 
 
+async def test_startup_rejects_multiple_revision_heads() -> None:
+    """Startup requires exactly one expected head, not membership in a set."""
+    from app import database
+
+    async with scratch_database("ia_multihead") as url:
+        conn = await asyncpg.connect(asyncpg_dsn(url))
+        try:
+            await conn.execute(
+                "create table alembic_version (version_num varchar(64) not null)"
+            )
+            await conn.executemany(
+                "insert into alembic_version(version_num) values($1)",
+                [(database.EXPECTED_SCHEMA_REVISION,), ("unexpected_branch_head",)],
+            )
+        finally:
+            await conn.close()
+
+        with pytest.raises(RuntimeError, match="not up to date"):
+            await database.verify_schema_is_current(url)
+
+
 def test_startup_module_no_longer_issues_ddl() -> None:
     source = (BACKEND_ROOT / "app" / "database.py").read_text()
 
@@ -253,9 +438,13 @@ def test_migration_configuration_is_committed() -> None:
 
 def test_rollback_is_documented() -> None:
     docs = (REPO_ROOT / "docs" / "migrations.md").read_text().lower()
+    readme = (REPO_ROOT / "README.md").read_text().lower()
 
     assert "alembic downgrade" in docs, "rollback procedure is not documented"
-    assert "alembic stamp" in docs, "adopting an existing database is not documented"
+    assert "alembic stamp 0003_rag_and_email" in docs
+    assert "alembic upgrade head" in docs
+    assert "alembic stamp head" not in docs
+    assert "alembic stamp head" not in readme
 
 
 def test_migrations_never_hardcode_a_database_url() -> None:

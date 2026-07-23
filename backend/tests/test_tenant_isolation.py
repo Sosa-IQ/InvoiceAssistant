@@ -568,6 +568,58 @@ async def test_deleting_a_client_cascades_only_within_the_owner(isolated_api) ->
 
 
 # ---------------------------------------------------------------------------
+# Direct PostgreSQL RLS
+# ---------------------------------------------------------------------------
+
+async def test_authenticated_role_and_jwt_claims_enforce_rls(isolated_api) -> None:
+    """Canonical policies, not only API filters, must isolate every owned table."""
+    _, alice, bob, _, url = isolated_api
+    tables = (
+        "business_settings",
+        "clients",
+        "client_addresses",
+        "catalog_items",
+        "invoice_records",
+        "invoice_embeddings",
+        "invoice_emails",
+    )
+
+    conn = await asyncpg.connect(asyncpg_dsn(url))
+    transaction = conn.transaction()
+    await transaction.start()
+    try:
+        await conn.execute("set local role authenticated")
+        await conn.execute(
+            "select set_config('request.jwt.claim.sub', $1, true)", bob.id
+        )
+
+        assert await conn.fetchval("select count(*) from public.profiles") == 1
+        assert await conn.fetchval(
+            "select count(*) from public.profiles where id = $1::uuid", alice.id
+        ) == 0
+
+        for table in tables:
+            assert await conn.fetchval(f"select count(*) from public.{table}") == 1
+            assert await conn.fetchval(
+                f"select count(*) from public.{table} where user_id = $1::uuid",
+                alice.id,
+            ) == 0, f"RLS exposed Alice's row from {table} to Bob"
+
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.execute(
+                """
+                insert into public.catalog_items
+                    (user_id, description, unit_price, unit)
+                values ($1::uuid, 'cross-tenant write', 1, 'item')
+                """,
+                alice.id,
+            )
+    finally:
+        await transaction.rollback()
+        await conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Stored ownership
 # ---------------------------------------------------------------------------
 

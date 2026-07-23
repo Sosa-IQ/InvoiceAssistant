@@ -147,52 +147,56 @@ async def api_client(url: str, tenants: dict[str, Tenant], data_dir):
     had_vector_store = hasattr(app.state, "vector_store")
     original_vector_store = getattr(app.state, "vector_store", None)
 
-    app_settings.data_dir = data_dir
-    # Tests must never contact live Supabase Storage, even when a developer's
-    # backend/.env contains a real service-role key. The storage service reads
-    # settings dynamically, so clearing the key forces its local-disk path.
-    app_settings.supabase_service_role_key = ""
-    invoices_api.email_svc.send_invoice_email = sent_emails
-    invoices_api.openai_svc.generate_invoice = fake_openai.generate_invoice
-    app.state.vector_store = VectorStoreService(fake_openai)
+    try:
+        app_settings.data_dir = data_dir
+        # Tests must never contact live Supabase Storage, even when a developer's
+        # backend/.env contains a real service-role key. The storage service reads
+        # settings dynamically, so clearing the key forces its local-disk path.
+        app_settings.supabase_service_role_key = ""
+        invoices_api.email_svc.send_invoice_email = sent_emails
+        invoices_api.openai_svc.generate_invoice = fake_openai.generate_invoice
+        app.state.vector_store = VectorStoreService(fake_openai)
 
-    current: dict[str, Tenant] = {}
+        current: dict[str, Tenant] = {}
 
-    async def override_get_db():
-        async with session_factory() as session:
-            yield session
+        async def override_get_db():
+            async with session_factory() as session:
+                yield session
 
-    async def override_current_user() -> auth.AuthenticatedUser:
-        tenant = current["tenant"]
-        return auth.AuthenticatedUser(id=tenant.id, email=tenant.email)
+        async def override_current_user() -> auth.AuthenticatedUser:
+            tenant = current["tenant"]
+            return auth.AuthenticatedUser(id=tenant.id, email=tenant.email)
 
-    app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[auth.get_current_user] = override_current_user
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[auth.get_current_user] = override_current_user
 
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as http:
 
-        async def request(tenant: Tenant, method: str, path: str, **kwargs) -> httpx.Response:
-            current["tenant"] = tenant
-            return await http.request(method, path, **kwargs)
+            async def request(
+                tenant: Tenant, method: str, path: str, **kwargs
+            ) -> httpx.Response:
+                current["tenant"] = tenant
+                return await http.request(method, path, **kwargs)
 
-        harness = {
-            "openai": fake_openai,
-            "emails": sent_emails,
-            "session_factory": session_factory,
-            "tenants": tenants,
-        }
-        try:
+            harness = {
+                "openai": fake_openai,
+                "emails": sent_emails,
+                "session_factory": session_factory,
+                "tenants": tenants,
+            }
             yield request, harness
-        finally:
-            app.dependency_overrides.clear()
-            app.dependency_overrides.update(original_overrides)
-            invoices_api.email_svc.send_invoice_email = original_send
-            invoices_api.openai_svc.generate_invoice = original_generate
-            app_settings.data_dir = original_data_dir
-            app_settings.supabase_service_role_key = original_supabase_service_role_key
-            if had_vector_store:
-                app.state.vector_store = original_vector_store
-            else:
-                del app.state.vector_store
-            await engine.dispose()
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(original_overrides)
+        invoices_api.email_svc.send_invoice_email = original_send
+        invoices_api.openai_svc.generate_invoice = original_generate
+        app_settings.data_dir = original_data_dir
+        app_settings.supabase_service_role_key = original_supabase_service_role_key
+        if had_vector_store:
+            app.state.vector_store = original_vector_store
+        elif hasattr(app.state, "vector_store"):
+            del app.state.vector_store
+        await engine.dispose()

@@ -74,7 +74,7 @@ SELECT grantee, table_name, privilege_type
 FROM information_schema.role_table_grants
 WHERE table_schema = 'public'
   AND table_name <> 'alembic_version'
-  AND grantee IN ('anon', 'authenticated', 'service_role')
+  AND grantee = 'authenticated'
 ORDER BY grantee, table_name, privilege_type
 """
 

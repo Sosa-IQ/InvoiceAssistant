@@ -8,7 +8,7 @@
 | `test_email_workflow.py`, `test_pdf_generator.py` | no | Email construction and header-injection rejection; PDF totals and rendering. |
 | `test_supabase_schema.py`, `test_ci_workflow.py` | no | The Supabase schema file and the CI workflow as checked-in configuration. |
 | `test_migrations.py` | **yes** | Clean bootstrap, existing-database upgrade, data preservation, rollback. |
-| `test_tenant_isolation.py` | **yes** | Two-user isolation across every owned table and route. |
+| `test_tenant_isolation.py` | **yes** | Two-user isolation across every owned table and route, plus direct RLS checks as PostgreSQL `authenticated`. |
 
 The database-backed suites are skipped unless `TEST_DATABASE_URL` is set, so
 `pytest` works out of the box without PostgreSQL installed.
@@ -57,10 +57,11 @@ pg_ctl -D /tmp/invoiceassistant-pg17 stop
 These suites create and drop databases, so `tests/support/postgres.py` refuses
 to run when `TEST_DATABASE_URL`:
 
+- is not a loopback host (`localhost`, `127.0.0.1`, or `::1`),
 - points at a managed Supabase host (`*.supabase.co`, `.com`, `.net`), or
 - is the same database as `DATABASE_URL`.
 
-Both rules are themselves tested, and they run without a database so the
+These guards are themselves tested, and they run without a database so the
 guard is verified on every `pytest` invocation. Never point
 `TEST_DATABASE_URL` at a database you care about: each test creates its own
 uniquely named scratch database and drops it afterwards.

@@ -12,7 +12,7 @@ engine = create_async_engine(DATABASE_URL, echo=False)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 # Keep in step with the newest file in backend/migrations/versions.
-EXPECTED_SCHEMA_REVISION = "0003_rag_and_email"
+EXPECTED_SCHEMA_REVISION = "0005_restore_email_defaults"
 
 
 class Base(DeclarativeBase):
@@ -64,7 +64,7 @@ async def verify_schema_is_current(database_url: str | None = None) -> None:
         if database_url is not None:
             await target_engine.dispose()
 
-    if EXPECTED_SCHEMA_REVISION not in revisions:
+    if revisions != {EXPECTED_SCHEMA_REVISION}:
         raise _pending_migrations_error(revisions)
 
 

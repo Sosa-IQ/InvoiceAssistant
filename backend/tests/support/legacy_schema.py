@@ -1,16 +1,30 @@
-"""Reconstructs the database shape that existed before Alembic was adopted.
+"""Reconstruct database shapes that existed before Alembic was adopted.
 
-Deployments created by the old startup DDL predate per-client invoice
-numbering, the pgvector move, and email history. Migration tests build this
-shape so the upgrade path is proven against a realistic starting point rather
-than against an empty database.
-
-This mirrors revision ``0001_baseline`` and must be kept in step with it.
+``build_legacy_schema`` mirrors the older ``0001_baseline`` shape.
+``build_pre_alembic_head_schema`` separately executes an isolated transcription
+of the final historical SQLAlchemy ``metadata.create_all`` models plus runtime
+DDL. Keeping those paths distinct prevents canonical SQL from masking the drift
+that the adoption migrations must repair.
 """
 
 from __future__ import annotations
 
 import asyncpg
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.support.postgres import asyncpg_dsn
 
@@ -153,5 +167,176 @@ async def build_legacy_schema(url: str) -> None:
     conn = await asyncpg.connect(asyncpg_dsn(url))
     try:
         await conn.execute(LEGACY_SCHEMA_SQL)
+    finally:
+        await conn.close()
+
+
+# This is a direct, isolated transcription of the SQLAlchemy metadata and
+# runtime SQL at commit a51f3a4, the final pre-Alembic startup path. It must not
+# inherit the canonical SQL's RLS, policies, grants, types, or FK semantics:
+# those are exactly what adoption must repair.
+def _pre_alembic_runtime_metadata() -> MetaData:
+    metadata = MetaData()
+    Table(
+        "profiles",
+        metadata,
+        Column("id", PGUUID(as_uuid=False), primary_key=True),
+        Column("email", String, nullable=False, unique=True, index=True),
+        Column("display_name", String),
+        Column("created_at", DateTime, nullable=False),
+    )
+    Table(
+        "business_settings",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("user_id", PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True),
+        Column("name", String),
+        Column("address", Text),
+        Column("email", String),
+        Column("phone", String),
+        Column("tax_id", String),
+        Column("logo_path", String),
+        Column("default_currency", String, nullable=False),
+        Column("default_tax_pct", Float, nullable=False),
+        Column("payment_terms", String, nullable=False),
+        Column("bank_name", String),
+        Column("account_name", String),
+        Column("account_number", String),
+        Column("routing_number", String),
+        Column("payment_notes", Text),
+        Column("updated_at", DateTime, nullable=False),
+        UniqueConstraint("user_id", name="uq_business_settings_user_id"),
+    )
+    Table(
+        "clients",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("user_id", PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True),
+        Column("name", String, nullable=False, index=True),
+        Column("client_code", String(32), index=True),
+        Column("address", Text),
+        Column("email", String),
+        Column("phone", String),
+        Column("notes", Text),
+        Column("created_at", DateTime, nullable=False),
+        Column("updated_at", DateTime, nullable=False),
+        UniqueConstraint("user_id", "client_code", name="uq_clients_user_id_client_code"),
+    )
+    Table(
+        "client_addresses",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("user_id", PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True),
+        Column("client_id", Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True),
+        Column("label", String),
+        Column("address", Text, nullable=False),
+        Column("created_at", DateTime, nullable=False),
+    )
+    Table(
+        "catalog_items",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("user_id", PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True),
+        Column("description", String, nullable=False, index=True),
+        Column("unit_price", Float, nullable=False),
+        Column("unit", String, nullable=False),
+        Column("notes", Text),
+        Column("created_at", DateTime, nullable=False),
+        Column("updated_at", DateTime, nullable=False),
+    )
+    Table(
+        "invoice_records",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("user_id", PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True),
+        Column("client_id", Integer, ForeignKey("clients.id", ondelete="SET NULL"), index=True),
+        Column("client_invoice_sequence", Integer),
+        Column("filename", String, nullable=False),
+        Column("file_path", String, nullable=False),
+        Column("storage_path", String),
+        Column("source", String, nullable=False),
+        Column("invoice_number", String, index=True),
+        Column("client_name", String, index=True),
+        Column("issue_date", String),
+        Column("grand_total", Float),
+        Column("currency", String, nullable=False),
+        Column("rag_doc_id", String),
+        Column("status", String, nullable=False),
+        Column("invoice_json", Text),
+        Column("created_at", DateTime, nullable=False),
+        CheckConstraint("source IN ('uploaded', 'generated')", name="valid_source"),
+        UniqueConstraint(
+            "user_id",
+            "client_id",
+            "client_invoice_sequence",
+            name="uq_invoice_records_user_client_sequence",
+        ),
+    )
+    Table(
+        "invoice_emails",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("user_id", PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True),
+        Column("invoice_record_id", Integer, ForeignKey("invoice_records.id", ondelete="CASCADE"), nullable=False, index=True),
+        Column("recipient_email", String, nullable=False),
+        Column("cc_email", String),
+        Column("subject", String, nullable=False),
+        Column("message_body", Text, nullable=False),
+        Column("status", String, nullable=False),
+        Column("provider", String, nullable=False),
+        Column("provider_message_id", String),
+        Column("error_message", Text),
+        Column("sent_at", DateTime),
+        Column("created_at", DateTime, nullable=False),
+    )
+    return metadata
+
+
+PRE_ALEMBIC_RUNTIME_SQL = """
+create extension if not exists vector with schema extensions;
+
+update public.client_addresses as ca
+   set user_id = c.user_id
+  from public.clients as c
+ where ca.client_id = c.id and ca.user_id is null and c.user_id is not null;
+
+create table if not exists public.invoice_embeddings (
+  id bigserial primary key,
+  doc_id uuid not null,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  invoice_record_id bigint not null references public.invoice_records(id) on delete cascade,
+  filename text not null,
+  chunk_index integer not null,
+  content text not null,
+  embedding extensions.vector(1536) not null,
+  created_at timestamp without time zone not null default now(),
+  constraint uq_invoice_embeddings_doc_chunk unique (doc_id, chunk_index)
+);
+
+create index if not exists idx_invoice_embeddings_user_id on public.invoice_embeddings(user_id);
+create index if not exists idx_invoice_embeddings_record_id on public.invoice_embeddings(invoice_record_id);
+create index if not exists idx_client_addresses_user_id on public.client_addresses(user_id);
+create index if not exists idx_invoice_emails_user_id on public.invoice_emails(user_id);
+create index if not exists idx_invoice_emails_record_id on public.invoice_emails(invoice_record_id);
+create index if not exists idx_invoice_embeddings_embedding_hnsw
+  on public.invoice_embeddings using hnsw (embedding vector_cosine_ops);
+"""
+
+
+async def build_pre_alembic_head_schema(url: str) -> None:
+    """Execute the historical metadata.create_all + runtime-DDL startup path."""
+    from tests.support.postgres import bootstrap_supabase_stubs
+
+    await bootstrap_supabase_stubs(url)
+    engine = create_async_engine(url)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(_pre_alembic_runtime_metadata().create_all)
+    finally:
+        await engine.dispose()
+
+    conn = await asyncpg.connect(asyncpg_dsn(url))
+    try:
+        await conn.execute(PRE_ALEMBIC_RUNTIME_SQL)
     finally:
         await conn.close()
