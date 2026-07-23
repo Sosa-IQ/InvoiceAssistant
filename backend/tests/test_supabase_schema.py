@@ -27,6 +27,14 @@ def test_core_schema_contains_email_history_table_and_rls() -> None:
     assert "invoice emails owner all" in schema
 
 
+def test_core_schema_grants_authenticated_role_table_and_sequence_access() -> None:
+    schema = _normalized_schema()
+
+    assert "grant select, insert, update, delete on table public.profiles" in schema
+    assert "public.invoice_emails to authenticated" in schema
+    assert "grant usage, select on all sequences in schema public to authenticated" in schema
+
+
 def test_core_schema_uses_pgvector_embeddings() -> None:
     schema = _normalized_schema()
 

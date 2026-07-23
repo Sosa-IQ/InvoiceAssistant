@@ -76,11 +76,18 @@ async def get_current_user(
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(401, "Authentication required.")
 
+    token = credentials.credentials
     if settings.supabase_jwt_secret:
-        payload = _decode_token_with_secret(credentials.credentials)
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(401, "Invalid authentication token.")
-        return AuthenticatedUser(id=user_id, email=payload.get("email"))
+        try:
+            algorithm = jwt.get_unverified_header(token).get("alg")
+        except jwt.InvalidTokenError:
+            algorithm = "HS256"
 
-    return await _get_user_from_supabase(credentials.credentials)
+        if algorithm == "HS256":
+            payload = _decode_token_with_secret(token)
+            user_id = payload.get("sub")
+            if not user_id:
+                raise HTTPException(401, "Invalid authentication token.")
+            return AuthenticatedUser(id=user_id, email=payload.get("email"))
+
+    return await _get_user_from_supabase(token)

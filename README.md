@@ -17,7 +17,16 @@ brew install weasyprint
 
 ## Supabase setup
 
-Run `supabase/setup_invoice_assistant_core.sql` in the Supabase SQL editor. For a database created from an older version of that schema, also review `supabase/add_per_client_invoice_numbering.sql`; backend startup applies compatibility migrations, but the core SQL file is the canonical fresh-install schema.
+Run `supabase/setup_invoice_assistant_core.sql` in the Supabase SQL editor. That file is the canonical fresh-install schema.
+
+Schema changes after that are versioned Alembic migrations. The backend no longer alters the schema at startup — it verifies the database is migrated and refuses to start otherwise:
+
+```bash
+cd backend
+.venv/bin/alembic upgrade head
+```
+
+An existing database is adopted with `alembic stamp head`. See [docs/migrations.md](docs/migrations.md) for the revision history, the rollback procedure, and what a rollback costs.
 
 Copy the environment templates and supply your own secrets:
 
@@ -45,6 +54,10 @@ Run backend tests:
 cd backend
 DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib .venv/bin/python -m pytest -q
 ```
+
+The migration and tenant-isolation suites need a local PostgreSQL with pgvector and are skipped unless `TEST_DATABASE_URL` is set. See [docs/testing.md](docs/testing.md) for the setup and the safety rules that keep those tests away from a real project.
+
+Dependency auditing and the one accepted advisory are documented in [docs/dependencies.md](docs/dependencies.md).
 
 ## Frontend
 

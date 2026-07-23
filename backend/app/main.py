@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Initialize resources on startup, clean up on shutdown."""
     logger.info("Starting Invoice Assistant API...")
 
-    # Create DB tables and data directories
+    # Prepare data directories and refuse to start on an unmigrated schema.
     await init_db()
 
     supabase = SupabaseService()
