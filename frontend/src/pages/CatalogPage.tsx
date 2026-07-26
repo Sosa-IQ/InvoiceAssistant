@@ -1,12 +1,13 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus, Pencil, Trash2, Package } from "lucide-react"
+import { Loader2, Plus, Pencil, Sparkles, Trash2, Package } from "lucide-react"
 import { toast } from "sonner"
 import { useForm } from "react-hook-form"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
@@ -22,15 +23,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { listCatalog, createCatalogItem, updateCatalogItem, deleteCatalogItem } from "@/api/catalog"
-import type { CatalogItem } from "@/types/invoice"
+import {
+  listCatalog,
+  createCatalogItem,
+  updateCatalogItem,
+  deleteCatalogItem,
+  recommendCatalogItems,
+} from "@/api/catalog"
+import type { CatalogItem, CatalogRecommendation } from "@/types/invoice"
 
-type ItemFormData = Omit<CatalogItem, "id" | "created_at" | "updated_at">
+type ItemFormData = Omit<CatalogItem, "id" | "user_id" | "created_at" | "updated_at">
 
 export default function CatalogPage() {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<CatalogItem | null>(null)
+  const [recommendationsOpen, setRecommendationsOpen] = useState(false)
+  const [recommendations, setRecommendations] = useState<CatalogRecommendation[]>([])
+  const [savedRecommendations, setSavedRecommendations] = useState<string[]>([])
+  const [savingRecommendationKeys, setSavingRecommendationKeys] = useState<string[]>([])
 
   const { data: items = [] } = useQuery<CatalogItem[]>({
     queryKey: ["catalog"],
@@ -56,6 +67,18 @@ export default function CatalogPage() {
     onError: () => toast.error("Failed to delete item."),
   })
 
+  const recommendMutation = useMutation({
+    mutationFn: recommendCatalogItems,
+    onSuccess: (data) => {
+      setRecommendations(data)
+      setSavedRecommendations([])
+      setSavingRecommendationKeys([])
+      setRecommendationsOpen(true)
+      if (data.length === 0) toast.info("No new catalog recommendations found.")
+    },
+    onError: () => toast.error("Failed to get catalog recommendations."),
+  })
+
   function openCreate() {
     setEditing(null)
     reset({ description: "", unit_price: 0, unit: "item", notes: null })
@@ -72,11 +95,56 @@ export default function CatalogPage() {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n)
   }
 
+  function recommendationKey(item: CatalogRecommendation) {
+    return `${item.description.trim().toLowerCase()}|${item.unit.trim().toLowerCase()}|${item.unit_price}`
+  }
+
+  async function saveRecommendation(item: CatalogRecommendation) {
+    const key = recommendationKey(item)
+    setSavingRecommendationKeys((keys) => [...keys, key])
+    try {
+      await createCatalogItem({
+        description: item.description,
+        unit: item.unit,
+        unit_price: item.unit_price,
+        notes: item.notes,
+      })
+      setSavedRecommendations((keys) => [...keys, key])
+      await qc.invalidateQueries({ queryKey: ["catalog"] })
+      toast.success(`Saved "${item.description}".`)
+    } catch {
+      toast.error(`Failed to save "${item.description}".`)
+    } finally {
+      setSavingRecommendationKeys((keys) => keys.filter((savedKey) => savedKey !== key))
+    }
+  }
+
+  async function saveAllRecommendations() {
+    const unsaved = recommendations.filter((item) => !savedRecommendations.includes(recommendationKey(item)))
+    for (const item of unsaved) {
+      await saveRecommendation(item)
+    }
+  }
+
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Catalog</h1>
-        <Button onClick={openCreate}><Plus className="mr-1.5 h-4 w-4" />Add Item</Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => recommendMutation.mutate()}
+            disabled={recommendMutation.isPending}
+          >
+            {recommendMutation.isPending ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="mr-1.5 h-4 w-4" />
+            )}
+            Recommend
+          </Button>
+          <Button onClick={openCreate}><Plus className="mr-1.5 h-4 w-4" />Add Item</Button>
+        </div>
       </div>
 
       {items.length === 0 ? (
@@ -138,6 +206,76 @@ export default function CatalogPage() {
               <Button type="submit" disabled={saveMutation.isPending}>Save</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={recommendationsOpen} onOpenChange={setRecommendationsOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Catalog Recommendations</DialogTitle>
+          </DialogHeader>
+
+          {recommendations.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              No new recommendations found.
+            </div>
+          ) : (
+            <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+              {recommendations.map((item) => {
+                const key = recommendationKey(item)
+                const saved = savedRecommendations.includes(key)
+                const saving = savingRecommendationKeys.includes(key)
+
+                return (
+                  <div key={key} className="rounded-md border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <div className="font-medium leading-snug">{item.description}</div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span>{item.unit}</span>
+                          {item.unit_price > 0 && <span className="font-mono">{fmt(item.unit_price)}</span>}
+                          <Badge variant="secondary">{Math.round(item.confidence * 100)}%</Badge>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={saved ? "secondary" : "outline"}
+                        disabled={saved || saving}
+                        onClick={() => saveRecommendation(item)}
+                      >
+                        {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                        {saved ? "Saved" : "Save"}
+                      </Button>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">{item.reason}</p>
+                    {item.invoice_examples.length > 0 && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Seen in {item.invoice_examples.join(", ")}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRecommendationsOpen(false)}>
+              Close
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                recommendations.length === 0 ||
+                savingRecommendationKeys.length > 0 ||
+                recommendations.every((item) => savedRecommendations.includes(recommendationKey(item)))
+              }
+              onClick={saveAllRecommendations}
+            >
+              Save All
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

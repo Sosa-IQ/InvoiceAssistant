@@ -1,0 +1,6 @@
+-r requirements.txt
+pytest==9.1.1
+pytest-asyncio==1.4.0
+
+# Dependency vulnerability gate (see .github/workflows/ci.yml)
+pip-audit==2.10.1

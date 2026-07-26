@@ -42,15 +42,19 @@ export interface InvoiceData {
 
 export interface InvoiceRecord {
   id: number
+  user_id: string
+  client_id: number | null
+  client_invoice_sequence: number | null
   filename: string
   file_path: string
+  storage_path: string | null
   source: string
   invoice_number: string | null
   client_name: string | null
   issue_date: string | null
   grand_total: number | null
   currency: string
-  chroma_doc_id: string | null
+  rag_doc_id: string | null
   status: string
   invoice_json: string | null
   created_at: string | null
@@ -75,8 +79,16 @@ export interface GenerateInvoiceResponse {
   rag_docs_used: number
 }
 
+export interface NextInvoiceNumberResponse {
+  client_id: number
+  client_code: string
+  client_invoice_sequence: number
+  invoice_number: string
+}
+
 export interface ClientAddress {
   id: number
+  user_id: string
   client_id: number
   label: string | null
   address: string
@@ -85,7 +97,9 @@ export interface ClientAddress {
 
 export interface Client {
   id: number
+  user_id: string
   name: string
+  client_code: string | null
   email: string | null
   phone: string | null
   notes: string | null
@@ -96,6 +110,7 @@ export interface Client {
 
 export interface CatalogItem {
   id: number
+  user_id: string
   description: string
   unit_price: number
   unit: string
@@ -104,12 +119,68 @@ export interface CatalogItem {
   updated_at: string | null
 }
 
+export interface CatalogRecommendation {
+  description: string
+  unit_price: number
+  unit: string
+  notes: string | null
+  confidence: number
+  reason: string
+  invoice_examples: string[]
+}
+
 export interface BusinessSettings {
   id: number
+  user_id: string
   name: string | null
   address: string | null
   email: string | null
   phone: string | null
   logo_path: string | null
+  tax_id: string | null
+  default_currency: string
+  default_tax_pct: number
+  payment_terms: string
+  bank_name: string | null
+  account_name: string | null
+  account_number: string | null
+  routing_number: string | null
+  payment_notes: string | null
   updated_at: string | null
+}
+
+export interface Profile {
+  id: string
+  email: string
+  display_name: string | null
+  created_at: string | null
+}
+
+export interface AuthMeResponse {
+  user: Profile
+}
+
+export interface InvoiceEmail {
+  id: number
+  user_id: string
+  invoice_record_id: number
+  recipient_email: string
+  cc_email: string | null
+  subject: string
+  message_body: string
+  status: string
+  provider: string
+  provider_message_id: string | null
+  error_message: string | null
+  sent_at: string | null
+  created_at: string | null
+}
+
+export interface SendInvoiceRequest {
+  subject: string
+  message: string
+}
+
+export interface SendInvoiceResponse {
+  email: InvoiceEmail
 }

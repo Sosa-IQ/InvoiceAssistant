@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react"
 import { NavLink, Outlet } from "react-router-dom"
-import { FileText, PlusCircle, Users, Package, Settings, Moon, Sun } from "lucide-react"
+import { FileText, LogOut, Moon, Package, PlusCircle, Settings, Sun, Users } from "lucide-react"
+import { toast } from "sonner"
+import { useAuth } from "@/auth/AuthContext"
 import { cn } from "@/lib/utils"
 
 const NAV = [
@@ -28,6 +30,7 @@ function useDarkMode() {
 
 export default function AppLayout() {
   const [dark, toggleDark] = useDarkMode()
+  const { user, signOut } = useAuth()
 
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden">
@@ -62,7 +65,11 @@ export default function AppLayout() {
           ))}
         </nav>
 
-        {/* Dark mode toggle */}
+        <div className="px-4 py-3 border-t border-sidebar-border text-xs text-sidebar-foreground/70">
+          <div className="truncate font-medium text-sidebar-foreground">{user?.email}</div>
+        </div>
+
+        {/* Footer controls */}
         <div className="p-3 border-t border-sidebar-border">
           <button
             onClick={toggleDark}
@@ -73,6 +80,16 @@ export default function AppLayout() {
               ? <Sun  className="h-3.75 w-3.75 shrink-0" />
               : <Moon className="h-3.75 w-3.75 shrink-0" />}
             {dark ? "Light mode" : "Dark mode"}
+          </button>
+          <button
+            onClick={async () => {
+              await signOut()
+              toast.success("Signed out.")
+            }}
+            className="mt-2 w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] font-medium text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          >
+            <LogOut className="h-3.75 w-3.75 shrink-0" />
+            Log out
           </button>
         </div>
       </aside>
