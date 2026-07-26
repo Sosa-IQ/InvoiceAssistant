@@ -16,7 +16,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { downloadInvoicePdf, listInvoiceEmails, openInvoicePdf, sendInvoice } from "@/api/invoices"
-import type { InvoiceData, InvoiceEmail, InvoiceRecord, SendInvoiceRequest } from "@/types/invoice"
+import { getSettings } from "@/api/settings"
+import type { BusinessSettings, InvoiceData, InvoiceEmail, InvoiceRecord, SendInvoiceRequest } from "@/types/invoice"
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
@@ -45,23 +46,46 @@ function parseInvoice(record: InvoiceRecord): InvoiceData | null {
   }
 }
 
-function buildDefaultSubject(record: InvoiceRecord, invoice: InvoiceData | null) {
-  const senderName = invoice?.from?.name?.trim() || "Invoice Assistant"
-  return `Invoice ${record.invoice_number || record.filename} from ${senderName}`
+// Fallback templates, used only if the tenant's saved settings are unavailable.
+// These must match the backend's `DEFAULT_EMAIL_SUBJECT_TEMPLATE` /
+// `DEFAULT_EMAIL_MESSAGE_TEMPLATE` in app/models/schemas.py.
+const FALLBACK_SUBJECT_TEMPLATE = "Invoice {invoice_number}"
+const FALLBACK_MESSAGE_TEMPLATE =
+  "Hello {client_name},\n\nPlease find invoice {invoice_number} attached.\n\nBest,\n{business_name}"
+
+// Keep in sync with the backend allowlist (EMAIL_TEMPLATE_PLACEHOLDERS in
+// app/models/schemas.py). Only these named placeholders are ever substituted.
+type TemplateContext = {
+  invoice_number: string
+  client_name: string
+  business_name: string
+  issue_date: string
+  total: string
+  currency: string
 }
 
-function buildDefaultMessage(record: InvoiceRecord, invoice: InvoiceData | null) {
-  const recipientName = invoice?.to?.name?.trim() || record.client_name || "there"
-  const senderName = invoice?.from?.name?.trim() || "our team"
-  const senderEmail = invoice?.from?.email?.trim()
-  return `Hi ${recipientName},
+const TEMPLATE_PLACEHOLDER_RE = /\{([a-zA-Z0-9_]+)\}/g
 
-You are receiving this invoice on behalf of ${senderName}.
+function buildTemplateContext(
+  record: InvoiceRecord,
+  invoice: InvoiceData | null,
+  settingsData: BusinessSettings | undefined,
+): TemplateContext {
+  return {
+    invoice_number: record.invoice_number || record.filename,
+    client_name: invoice?.to?.name?.trim() || record.client_name || "",
+    business_name: invoice?.from?.name?.trim() || settingsData?.name?.trim() || "Invoice Assistant",
+    issue_date: record.issue_date || invoice?.issue_date || "",
+    total: record.grand_total != null ? record.grand_total.toFixed(2) : "",
+    currency: record.currency || "",
+  }
+}
 
-Please find attached invoice ${record.invoice_number || record.filename}.
-
-Thank you,
-${senderName}${senderEmail ? `\n${senderEmail}` : ""}`
+/** Substitutes only the explicit allowlisted placeholders above — never `eval` or a general `format_map`. */
+function interpolateTemplate(template: string, context: TemplateContext): string {
+  return template.replace(TEMPLATE_PLACEHOLDER_RE, (match, key: string) => (
+    Object.prototype.hasOwnProperty.call(context, key) ? context[key as keyof TemplateContext] : match
+  ))
 }
 
 function normalized(value: string) {
@@ -101,6 +125,7 @@ export function EmailInvoiceDialog({
   const sentHeadingRef = useRef<HTMLHeadingElement>(null)
   const confirmHeadingRef = useRef<HTMLHeadingElement>(null)
   const composeHeadingRef = useRef<HTMLHeadingElement>(null)
+  const templatedRecordIdRef = useRef<number | null>(null)
 
   const {
     data: emailHistory = [],
@@ -113,6 +138,11 @@ export function EmailInvoiceDialog({
     enabled: record !== null,
   })
   const visibleHistory = emailHistory.filter((email) => email.status === "sent")
+
+  const settingsQuery = useQuery<BusinessSettings>({
+    queryKey: ["settings"],
+    queryFn: getSettings,
+  })
 
   useEffect(() => {
     if (!record) {
@@ -132,12 +162,37 @@ export function EmailInvoiceDialog({
     }
     setDelivery(defaults)
     setBaseline(defaults)
-    setSendSubject(buildDefaultSubject(record, invoice))
-    setSendMessage(buildDefaultMessage(record, invoice))
     setSendAttemptKey(newSendAttemptKey())
     setView("compose")
     setSendError(null)
   }, [record, user?.email])
+
+  // Composes the subject/message once per newly opened invoice, from the
+  // tenant's saved templates. Gated on `record.id` (not the `record` object,
+  // which can get a new identity on unrelated refetches) so that a later
+  // settings refetch while this same invoice stays open never clobbers edits
+  // the user has already made.
+  useEffect(() => {
+    if (!record) {
+      templatedRecordIdRef.current = null
+      return
+    }
+    if (templatedRecordIdRef.current === record.id) return
+    // Only compose from a *successful* settings response. On failure we do not
+    // silently fall back to the built-in template; we surface an inline retry
+    // instead. The built-in fallback stays valid only for a successful response
+    // missing the optional template fields (legacy compatibility).
+    if (!settingsQuery.isSuccess) return
+
+    const invoice = parseInvoice(record)
+    const context = buildTemplateContext(record, invoice, settingsQuery.data)
+    const subjectTemplate = settingsQuery.data?.default_email_subject || FALLBACK_SUBJECT_TEMPLATE
+    const messageTemplate = settingsQuery.data?.default_email_message || FALLBACK_MESSAGE_TEMPLATE
+    setSendSubject(interpolateTemplate(subjectTemplate, context))
+    setSendMessage(interpolateTemplate(messageTemplate, context))
+    templatedRecordIdRef.current = record.id
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- gate on record.id, not record identity; see comment above
+  }, [record?.id, settingsQuery.data, settingsQuery.isSuccess])
 
   useEffect(() => {
     if (view === "sent") sentHeadingRef.current?.focus()
@@ -295,6 +350,16 @@ export function EmailInvoiceDialog({
             </div>
           </div>
 
+          {settingsQuery.isError && (
+            <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              <p>Could not load your saved email template. Subject and message aren&apos;t prefilled.</p>
+              <Button type="button" variant="outline" size="sm" className="mt-2" disabled={sending || settingsQuery.isFetching} onClick={() => void settingsQuery.refetch()}>
+                {settingsQuery.isFetching ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                Retry template
+              </Button>
+            </div>
+          )}
+
           <div className="space-y-1">
             <Label htmlFor="email-subject">Subject</Label>
             <Input id="email-subject" value={sendSubject} disabled={sending} onChange={(event) => { setSendSubject(event.target.value); setSendAttemptKey(newSendAttemptKey()); setSendError(null) }} />
@@ -391,11 +456,28 @@ export function EmailInvoiceDialog({
           <DialogDescription>These delivery fields differ from the saved invoice defaults:</DialogDescription>
         </DialogHeader>
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <ul className="space-y-2" aria-label="Changed delivery fields">
-            {changedFields.map((field) => (
-              <li key={field} className="rounded-md border px-3 py-2 text-sm font-medium">{DELIVERY_LABELS[field]}</li>
-            ))}
-          </ul>
+          <dl className="space-y-2" aria-label="Changed delivery fields">
+            {changedFields.map((field) => {
+              const saved = (baseline && normalized(baseline[field])) || "Not set"
+              const next = normalized(delivery[field]) || "Not set"
+              return (
+                <div key={field} className="rounded-md border px-3 py-2 text-sm">
+                  <dt className="font-medium">{DELIVERY_LABELS[field]}</dt>
+                  <dd className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-muted-foreground">
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium uppercase tracking-wide">Saved</span>
+                      <span className="block break-words text-foreground">{saved}</span>
+                    </span>
+                    <span aria-hidden="true">&rarr;</span>
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium uppercase tracking-wide">Sending</span>
+                      <span className="block break-words text-foreground">{next}</span>
+                    </span>
+                  </dd>
+                </div>
+              )
+            })}
+          </dl>
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => setView("compose")} disabled={sending}>Back</Button>

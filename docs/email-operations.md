@@ -1,5 +1,18 @@
 # Email operations
 
+## Default composition templates
+
+Each tenant can edit its default subject and message under **Settings → Email Templates**. New email compositions interpolate only these allowlisted placeholders:
+
+- `{invoice_number}`
+- `{client_name}`
+- `{business_name}`
+- `{issue_date}`
+- `{total}`
+- `{currency}`
+
+Templates must be nonblank; subjects are limited to 200 characters and one line, and messages to 5,000 characters. Unknown or malformed placeholders are rejected. The rendered subject and message remain editable for an individual send without changing the saved tenant defaults.
+
 ## Reliability model
 
 Each browser composition sends an `idempotency_key`. The API stores it under a per-user unique constraint and binds it to a SHA-256 fingerprint covering:

@@ -12,7 +12,7 @@ engine = create_async_engine(DATABASE_URL, echo=False)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 # Keep in step with the newest file in backend/migrations/versions.
-EXPECTED_SCHEMA_REVISION = "0007_security_events"
+EXPECTED_SCHEMA_REVISION = "0008_email_templates"
 
 
 class Base(DeclarativeBase):

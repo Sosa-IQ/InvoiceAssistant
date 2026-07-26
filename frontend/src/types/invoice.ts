@@ -146,6 +146,8 @@ export interface BusinessSettings {
   account_number: string | null
   routing_number: string | null
   payment_notes: string | null
+  default_email_subject: string
+  default_email_message: string
   updated_at: string | null
 }
 

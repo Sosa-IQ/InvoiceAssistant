@@ -36,6 +36,17 @@ class BusinessSettings(Base):
     account_number: Mapped[str | None] = mapped_column(String)
     routing_number: Mapped[str | None] = mapped_column(String)
     payment_notes: Mapped[str | None] = mapped_column(Text)
+    default_email_subject: Mapped[str] = mapped_column(
+        String(200), default="Invoice {invoice_number}"
+    )
+    default_email_message: Mapped[str] = mapped_column(
+        Text,
+        default=(
+            "Hello {client_name},\n\n"
+            "Please find invoice {invoice_number} attached.\n\n"
+            "Best,\n{business_name}"
+        ),
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=func.now(), onupdate=func.now()
     )

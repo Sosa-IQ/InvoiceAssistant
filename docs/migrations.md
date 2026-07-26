@@ -18,6 +18,9 @@ whichever process last booted, with no version, no review, and no way back.
 | `0003_rag_and_email` | pgvector `invoice_embeddings`, `invoice_emails` history, `invoice_records.storage_path`, the `chroma_doc_id` → `rag_doc_id` rename, and per-user ownership on `client_addresses` (backfilled from each address's client). |
 | `0004_normalize_adopted_schema` | Converges databases created by the former startup DDL: ownership constraints, canonical identity/timestamp/text types, duplicate-index cleanup, RLS policies, and `authenticated` grants. |
 | `0005_restore_email_defaults` | Restores the `status`, `provider`, and `created_at` server defaults omitted by SQLAlchemy-created `invoice_emails` tables. |
+| `0006_email_idempotency` | Durable idempotency metadata (`idempotency_key`, `request_fingerprint`, `attempt_count`, `attempt_token`, `lease_expires_at`) on `invoice_emails`. |
+| `0007_security_events` | `security_events` audit table backing durable rate limits, with owner-only `SELECT` RLS. |
+| `0008_email_templates` | `business_settings.default_email_subject` / `default_email_message`, tenant-customizable defaults used to compose invoice send emails. |
 
 ## Prerequisites
 

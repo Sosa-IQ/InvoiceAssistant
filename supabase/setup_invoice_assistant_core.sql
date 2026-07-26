@@ -24,8 +24,13 @@ create table if not exists public.business_settings (
   account_number text,
   routing_number text,
   payment_notes text,
+  default_email_subject varchar(200) not null default 'Invoice {invoice_number}',
+  default_email_message text not null default E'Hello {client_name},\n\nPlease find invoice {invoice_number} attached.\n\nBest,\n{business_name}',
   updated_at timestamptz not null default now(),
-  constraint uq_business_settings_user_id unique (user_id)
+  constraint uq_business_settings_user_id unique (user_id),
+  constraint ck_business_settings_email_subject_not_blank check (length(btrim(default_email_subject)) > 0),
+  constraint ck_business_settings_email_message_not_blank check (length(btrim(default_email_message)) > 0),
+  constraint ck_business_settings_email_message_length check (char_length(default_email_message) <= 5000)
 );
 
 create table if not exists public.clients (
