@@ -1,8 +1,8 @@
 # Dependency security
 
 Both stacks are audited in CI on every push and pull request. This file records
-how upgrades are chosen and the one advisory that is currently accepted rather
-than fixed.
+how upgrades are chosen, the two exact high-severity exceptions currently
+accepted, and the below-threshold moderate development-tool exposure.
 
 ## Policy
 
@@ -54,11 +54,18 @@ existing pins.
 
 ```bash
 cd frontend
-npm audit --omit=dev --audit-level=moderate   # production dependencies
-npm audit --audit-level=high                  # build tooling
+node scripts/check-rsc-not-used.mjs
+node scripts/npm-audit-policy.mjs --production  # production threshold: moderate
+node scripts/npm-audit-policy.mjs               # full graph threshold: high
 ```
 
-**Status: production dependencies have no known vulnerabilities.**
+**Status:** all findings at the configured thresholds are either blocking or covered by exact, expiring, machine-validated exceptions in `frontend/security/npm-audit-exceptions.json`.
+
+Raw `npm audit` currently reports 10 vulnerability nodes: 3 moderate and 7
+high. The package-node count is larger than the number of root advisories
+because npm reports vulnerable transitive propagation chains separately.
+
+CI runs `scripts/check-rsc-not-used.mjs` plus `scripts/npm-audit-policy.mjs`. The policy consumes npm's JSON schema, recursively validates propagation chains, fails on unrelated findings, and also fails when an exception expires or becomes stale after a fix.
 
 Twenty-one findings were resolved by `npm audit fix`, which stayed inside the
 existing caret ranges — no `package.json` range changed:
@@ -75,7 +82,32 @@ Transitive fixes came along for `postcss`, `brace-expansion`, `minimatch`,
 `path-to-regexp`, `fast-uri`, `ajv`, `esbuild`, `body-parser`, `ip-address`
 and `@babel/core`.
 
-### Accepted exposure: `shadcn` MCP server chain
+### Exact exception: React Router RSC APIs (`GHSA-qwww-vcr4-c8h2`)
+
+- **Scope:** production and full dependency graphs.
+- **Expiry:** 2026-10-22.
+- **Why accepted:** the advisory affects unstable React Router Server
+  Components APIs. This application is a browser-only Vite SPA and imports
+  `react-router-dom`; it does not use React Router server/RSC entry points.
+- **Fail-closed proof:** `check-rsc-not-used.mjs` rejects direct, re-exported,
+  dynamic, `require`, namespace, computed, and template-literal RSC access,
+  forbids server/RSC packages, requires `components.json` to keep `rsc=false`,
+  and is itself covered by negative fixtures.
+- **Removal trigger:** remove the exception when npm no longer reports the
+  advisory on the installed production graph, or replace the dependency before
+  the expiry date.
+
+### Exact exception: ESLint brace-expansion chain (`GHSA-mh99-v99m-4gvg`)
+
+- **Scope:** full graph only; it is absent from the production graph.
+- **Expiry:** 2026-08-31.
+- **Why accepted:** the affected `brace-expansion` path is reachable only while
+  running ESLint. ESLint 10 was tested and is currently incompatible with the
+  existing plugin/config chain; forcing it would break the lint gate.
+- **Removal trigger:** move to a compatible ESLint/plugin chain or remove the
+  exception before expiry. Production policy never accepts this advisory.
+
+### Below-threshold exposure: `shadcn` MCP server chain
 
 Three moderate advisories remain, all in one dev-only chain:
 
@@ -93,7 +125,8 @@ Not fixed, because:
   `shadcn`, which does not remove the chain.
 - **It is not shipped.** `shadcn` is build-time tooling. The app consumes only
   `shadcn/tailwind.css` (imported by `src/index.css`); no MCP or Hono code
-  appears in `dist/`. `npm audit --omit=dev` reports zero vulnerabilities.
+  appears in `dist/`. Raw `npm audit --omit=dev` reports only the transitive
+  React Router nodes covered by the exact exception above.
 - **The vulnerable code never runs.** The advisories are in an HTTP server
   started by `shadcn mcp`, which this project does not invoke.
 

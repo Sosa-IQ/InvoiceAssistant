@@ -25,5 +25,5 @@ async def get_me(
         db.add(profile)
         await db.commit()
         await db.refresh(profile)
-        logger.info("Created profile for user_id=%s", current_user.id)
+        logger.info("profile_created")
     return AuthMeResponse(user=ProfileRead.model_validate(profile))

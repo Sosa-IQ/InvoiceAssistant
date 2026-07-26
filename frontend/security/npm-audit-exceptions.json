@@ -1,0 +1,24 @@
+{
+  "exceptions": [
+    {
+      "id": "GHSA-qwww-vcr4-c8h2",
+      "url": "https://github.com/advisories/GHSA-qwww-vcr4-c8h2",
+      "rootPackage": "react-router",
+      "packages": ["react-router", "react-router-dom"],
+      "severity": "high",
+      "scopes": ["production", "full"],
+      "expires": "2026-10-22",
+      "reason": "Only unstable React Router RSC APIs are affected; the source guard proves this Vite SPA does not use them."
+    },
+    {
+      "id": "GHSA-mh99-v99m-4gvg",
+      "url": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+      "rootPackage": "brace-expansion",
+      "packages": ["brace-expansion", "minimatch", "@eslint/config-array", "@eslint/eslintrc", "eslint"],
+      "severity": "high",
+      "scopes": ["full"],
+      "expires": "2026-08-31",
+      "reason": "Dev-only ESLint process DoS; ESLint 10 is incompatible with the current plugin chain."
+    }
+  ]
+}

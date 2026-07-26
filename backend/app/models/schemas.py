@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -320,6 +320,16 @@ class InvoiceEmailRead(BaseModel):
 class SendInvoiceRequest(BaseModel):
     subject: str = Field(..., min_length=1, max_length=200)
     message: str = Field(..., min_length=1, max_length=5000)
+    recipient_email: Optional[str] = None
+    cc_email: Optional[str] = None
+    reply_to_email: Optional[str] = None
+    from_display_name: Optional[str] = None
+    idempotency_key: Optional[str] = Field(
+        default=None,
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
 
     @field_validator("subject", "message")
     @classmethod
@@ -330,6 +340,35 @@ class SendInvoiceRequest(BaseModel):
         if info.field_name == "subject" and ("\r" in normalized or "\n" in normalized):
             raise ValueError("Subject must be a single line.")
         return normalized
+
+    @field_validator("recipient_email", "cc_email", "reply_to_email")
+    @classmethod
+    def validate_override_email(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_optional_email(value)
+
+    @field_validator("from_display_name")
+    @classmethod
+    def validate_from_display_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if "\r" in normalized or "\n" in normalized:
+            raise ValueError("Sender display name must be a single line.")
+        if len(normalized) > 120:
+            raise ValueError("Sender display name is too long.")
+        return normalized
+
+
+class ReconcileInvoiceEmailRequest(BaseModel):
+    resolution: Literal["delivered", "not_delivered"]
+
+
+class InvoiceEmailAttemptRead(InvoiceEmailRead):
+    idempotency_key: Optional[str] = None
+    attempt_count: int
+    lease_expires_at: Optional[datetime] = None
 
 
 class SendInvoiceResponse(BaseModel):

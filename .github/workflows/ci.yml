@@ -106,19 +106,27 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ci-only-anon-key
         run: npm run build
 
+      - name: Frontend tests
+        working-directory: frontend
+        run: npm run test -- --run
+
       - name: Lint
         working-directory: frontend
         run: npm run lint
 
       # Production dependencies ship to users, so they are held to a stricter
       # bar than build-time tooling. See docs/dependencies.md.
+      - name: Verify React Router RSC advisory is unreachable
+        working-directory: frontend
+        run: node scripts/check-rsc-not-used.mjs
+
       - name: Audit npm production dependencies
         working-directory: frontend
-        run: npm audit --omit=dev --audit-level=moderate
+        run: node scripts/npm-audit-policy.mjs --production
 
       - name: Audit npm build tooling
         working-directory: frontend
-        run: npm audit --audit-level=high
+        run: node scripts/npm-audit-policy.mjs
 
   sql:
     name: SQL (schema applies cleanly)

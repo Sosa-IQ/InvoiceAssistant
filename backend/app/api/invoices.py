@@ -1,19 +1,20 @@
+import hashlib
 import io
 import json
 import logging
 import uuid
-from datetime import date
-from datetime import datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import AuthenticatedUser, get_current_user
+from app.config import settings
 from app.database import get_db
 from app.models.db_models import BusinessSettings, CatalogItem, Client, InvoiceEmail, InvoiceRecord
 from app.models.schemas import (
@@ -21,9 +22,11 @@ from app.models.schemas import (
     GenerateInvoiceRequest,
     GenerateInvoiceResponse,
     InvoiceData,
+    InvoiceEmailAttemptRead,
     InvoiceEmailRead,
     InvoiceRecordRead,
     NextInvoiceNumberResponse,
+    ReconcileInvoiceEmailRequest,
     SendInvoiceRequest,
     SendInvoiceResponse,
     UploadResult,
@@ -39,6 +42,7 @@ from app.services.pdf_generator import PDFGeneratorService
 from app.services.pdf_parser import PDFParserService
 from app.services.rag_service import RAGService
 from app.services.storage import StorageService
+from app.security import enforce_rate_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/invoices", tags=["invoices"])
@@ -141,7 +145,7 @@ async def upload_invoices(
                 success=False,
                 error="Only PDF files are accepted.",
             ))
-            logger.warning("Rejected non-PDF file: %s (%s)", filename, file.content_type)
+            logger.warning("upload_rejected_non_pdf")
             continue
 
         # 1. Save file to disk
@@ -149,7 +153,7 @@ async def upload_invoices(
             doc_id, file_path, contents, storage_path = await storage.save_uploaded_pdf(file, current_user.id)
         except ValueError as e:
             results.append(UploadResult(filename=filename, success=False, error=str(e)))
-            logger.warning("Failed to save %s: %s", filename, e)
+            logger.warning("upload_save_failed", extra={"exception_type": type(e).__name__})
             continue
 
         # 2. Insert a record with status='processing'
@@ -170,7 +174,7 @@ async def upload_invoices(
         text, is_low_quality = parser.extract_text(contents)
 
         if is_low_quality:
-            logger.warning("Low-quality/scanned PDF detected for doc_id=%s (%s)", doc_id, filename)
+            logger.warning("upload_low_quality_pdf")
             record.status = "parse_failed"
             await db.commit()
             await db.refresh(record)
@@ -204,7 +208,7 @@ async def upload_invoices(
         await db.commit()
         await db.refresh(record)
 
-        logger.info("Indexed %s (doc_id=%s) with %d chunks. Hints: %s", filename, doc_id, len(chunks), hints)
+        logger.info("upload_indexed")
         results.append(UploadResult(
             filename=filename,
             success=True,
@@ -324,6 +328,14 @@ async def generate_invoice(
     Uses RAG to pull relevant context from previously uploaded invoices,
     then calls OpenAI gpt-4o-mini to produce a structured invoice JSON.
     """
+    await enforce_rate_limit(
+        db,
+        user_id=current_user.id,
+        event_type="invoice.generate",
+        limit=settings.invoice_generation_limit,
+        window_seconds=settings.invoice_generation_window_seconds,
+        request_id=getattr(request.state, "request_id", None),
+    )
     # 1. Determine next invoice number from the DB
     # 2. Load business settings (may be empty on first use)
     settings_row = await _business_settings(db, current_user.id)
@@ -392,8 +404,8 @@ async def generate_invoice(
             catalog_context=catalog_context,
         )
     except ValueError as exc:
-        logger.error("Invoice generation failed: %s", exc)
-        raise HTTPException(422, detail=str(exc))
+        logger.error("invoice_generation_failed", extra={"exception_type": type(exc).__name__})
+        raise HTTPException(422, detail="A valid invoice could not be generated from that prompt.")
 
     if invoice_data.to.client_id is not None:
         client = await _get_owned_client(db, current_user.id, invoice_data.to.client_id)
@@ -411,26 +423,25 @@ async def generate_invoice(
     else:
         invoice_data.invoice_number = None
 
-    logger.info("Generated invoice draft using %d RAG docs.", docs_used)
+    logger.info("invoice_draft_generated")
     return GenerateInvoiceResponse(invoice=invoice_data, rag_docs_used=docs_used)
 
 
-@router.post("/export")
-async def export_invoice(
-    body: InvoiceData,
-    current_user: AuthenticatedUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> StreamingResponse:
-    """
-    Accept an InvoiceData payload, recalculate totals server-side, render to PDF,
-    save to disk, upsert the invoice_records row, and return the PDF as a download.
-    """
-    invoice = body
+async def _persist_invoice(
+    db: AsyncSession,
+    user: AuthenticatedUser,
+    invoice: InvoiceData,
+) -> tuple[InvoiceRecord, bytes]:
+    """Validate, number, render, store and upsert an invoice.
 
+    Shared by ``/export`` (streams the PDF) and ``/save`` (returns the record as
+    JSON) so the persistence logic lives in exactly one place. Returns the
+    committed, refreshed record and the rendered PDF bytes.
+    """
     if invoice.to.client_id is None:
         raise HTTPException(422, detail="Select a saved client before exporting so the invoice can receive a per-client number.")
 
-    client = await _get_owned_client(db, current_user.id, invoice.to.client_id)
+    client = await _get_owned_client(db, user.id, invoice.to.client_id)
     if not client or not client.client_code:
         raise HTTPException(422, detail="Selected client was not found.")
 
@@ -439,15 +450,21 @@ async def export_invoice(
         res = await db.execute(
             select(InvoiceRecord).where(
                 InvoiceRecord.invoice_number == invoice.invoice_number,
-                InvoiceRecord.user_id == current_user.id,
+                InvoiceRecord.user_id == user.id,
             )
         )
         existing = res.scalar_one_or_none()
 
+    # An invoice number may only identify an update within the same client.
+    # Treat a number copied from another client as a new invoice so one saved
+    # record cannot be silently moved/clobbered by a crafted payload.
+    if existing and existing.client_id != client.id:
+        existing = None
+
     if existing and existing.client_id == client.id and existing.client_invoice_sequence:
         client_sequence = existing.client_invoice_sequence
     else:
-        client_sequence = await next_client_invoice_sequence(db, current_user.id, client.id)
+        client_sequence = await next_client_invoice_sequence(db, user.id, client.id)
 
     invoice.invoice_number = format_invoice_number(client.client_code, client_sequence)
     invoice.to.client_id = client.id
@@ -459,7 +476,7 @@ async def export_invoice(
     invoice = pdf_gen.recalculate_totals(invoice)
 
     # 2. Load logo path from settings (if configured)
-    settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.user_id == current_user.id))
+    settings_result = await db.execute(select(BusinessSettings).where(BusinessSettings.user_id == user.id))
     settings_row = settings_result.scalar_one_or_none()
     logo_path = settings_row.logo_path if settings_row else None
 
@@ -467,14 +484,14 @@ async def export_invoice(
     try:
         pdf_bytes = pdf_gen.render_pdf(invoice, logo_path=logo_path)
     except Exception as exc:
-        logger.error("PDF rendering failed: %s", exc, exc_info=True)
-        raise HTTPException(500, detail=f"PDF rendering failed: {exc}")
+        logger.error("pdf_render_failed", extra={"exception_type": type(exc).__name__})
+        raise HTTPException(500, detail="PDF rendering failed.")
 
     # 4. Build filename and save to disk
     inv_num = (invoice.invoice_number or "invoice").replace("/", "-").replace(" ", "_")
     filename = f"{inv_num}.pdf"
-    pdf_path, storage_path = await storage.save_generated_pdf(current_user.id, inv_num, pdf_bytes)
-    logger.info("Exported PDF saved to %s", pdf_path)
+    pdf_path, storage_path = await storage.save_generated_pdf(user.id, inv_num, pdf_bytes)
+    logger.info("invoice_pdf_saved")
 
     # 5. Upsert invoice_records: update if invoice_number exists, else create
     invoice_json_str = json.dumps(invoice.model_dump(by_alias=True))
@@ -491,10 +508,10 @@ async def export_invoice(
         existing.currency = "USD"
         existing.status = "exported"
         existing.invoice_json = invoice_json_str
-        await db.commit()
+        record = existing
     else:
         record = InvoiceRecord(
-            user_id=current_user.id,
+            user_id=user.id,
             client_id=client.id,
             client_invoice_sequence=client_sequence,
             filename=filename,
@@ -510,14 +527,43 @@ async def export_invoice(
             invoice_json=invoice_json_str,
         )
         db.add(record)
-        await db.commit()
 
-    # 6. Stream the PDF back
+    await db.commit()
+    await db.refresh(record)
+    return record, pdf_bytes
+
+
+@router.post("/export")
+async def export_invoice(
+    body: InvoiceData,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """
+    Accept an InvoiceData payload, recalculate totals server-side, render to PDF,
+    save to disk, upsert the invoice_records row, and return the PDF as a download.
+    """
+    record, pdf_bytes = await _persist_invoice(db, current_user, body)
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{record.filename}"'},
     )
+
+
+@router.post("/save", response_model=InvoiceRecordRead)
+async def save_invoice(
+    body: InvoiceData,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> InvoiceRecordRead:
+    """
+    Persist an invoice the same way ``/export`` does, but return the saved
+    record as JSON (no forced download) so the editor can open the email modal
+    for the just-saved invoice.
+    """
+    record, _ = await _persist_invoice(db, current_user, body)
+    return InvoiceRecordRead.model_validate(record)
 
 
 def _invoice_to_text(invoice: InvoiceData) -> str:
@@ -582,7 +628,7 @@ async def index_invoice(
     # Remove old vectors if previously indexed
     if record.rag_doc_id:
         await vector_store.delete_document(db, doc_id=record.rag_doc_id, user_id=current_user.id)
-        logger.info("Removed old vectors for record id=%d (doc_id=%s)", record_id, record.rag_doc_id)
+        logger.info("vector_document_removed")
 
     doc_id = str(uuid.uuid4())
     chunks = parser.chunk_text(text)
@@ -599,7 +645,7 @@ async def index_invoice(
     await db.commit()
     await db.refresh(record)
 
-    logger.info("Indexed generated invoice record id=%d as doc_id=%s (%d chunks)", record_id, doc_id, len(chunks))
+    logger.info("invoice_document_indexed")
     return InvoiceRecordRead.model_validate(record)
 
 
@@ -626,7 +672,7 @@ async def delete_invoice(
     pdf_path = Path(record.file_path)
     if pdf_path.exists():
         pdf_path.unlink()
-        logger.info("Deleted PDF file %s", pdf_path)
+        logger.info("invoice_pdf_deleted")
 
     await db.delete(record)
     await db.commit()
@@ -642,15 +688,89 @@ async def list_invoice_emails(
     await _get_owned_invoice_record(db, current_user.id, record_id)
     result = await db.execute(
         select(InvoiceEmail)
-        .where(InvoiceEmail.invoice_record_id == record_id, InvoiceEmail.user_id == current_user.id)
+        .where(
+            InvoiceEmail.invoice_record_id == record_id,
+            InvoiceEmail.user_id == current_user.id,
+            InvoiceEmail.status == "sent",
+        )
         .order_by(InvoiceEmail.created_at.desc())
     )
     return [InvoiceEmailRead.model_validate(email) for email in result.scalars().all()]
 
 
+@router.get(
+    "/{record_id}/email-attempts/pending",
+    response_model=list[InvoiceEmailAttemptRead],
+)
+async def list_pending_email_attempts(
+    record_id: int,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[InvoiceEmailAttemptRead]:
+    await _get_owned_invoice_record(db, current_user.id, record_id)
+    result = await db.execute(
+        select(InvoiceEmail)
+        .where(
+            InvoiceEmail.invoice_record_id == record_id,
+            InvoiceEmail.user_id == current_user.id,
+            InvoiceEmail.status == "pending",
+        )
+        .order_by(InvoiceEmail.created_at.desc())
+    )
+    return [
+        InvoiceEmailAttemptRead.model_validate(email)
+        for email in result.scalars().all()
+    ]
+
+
+@router.post(
+    "/{record_id}/email-attempts/{email_id}/reconcile",
+    response_model=InvoiceEmailRead,
+)
+async def reconcile_email_attempt(
+    record_id: int,
+    email_id: int,
+    body: ReconcileInvoiceEmailRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> InvoiceEmailRead:
+    await _get_owned_invoice_record(db, current_user.id, record_id)
+    result = await db.execute(
+        select(InvoiceEmail)
+        .where(
+            InvoiceEmail.id == email_id,
+            InvoiceEmail.invoice_record_id == record_id,
+            InvoiceEmail.user_id == current_user.id,
+        )
+        .with_for_update()
+    )
+    email = result.scalar_one_or_none()
+    if not email:
+        raise HTTPException(404, "Email attempt not found.")
+    if email.status != "pending":
+        raise HTTPException(409, "Only pending email attempts can be reconciled.")
+    now = datetime.now(UTC)
+    if email.lease_expires_at and email.lease_expires_at > now:
+        raise HTTPException(409, "This email attempt lease is still active.")
+
+    email.lease_expires_at = None
+    if body.resolution == "delivered":
+        email.status = "sent"
+        email.sent_at = now
+        email.error_message = None
+    else:
+        email.status = "failed"
+        email.error_message = "Owner reconciled stale attempt as not delivered."
+    await db.commit()
+    await db.refresh(email)
+    logger.info("email_attempt_reconciled")
+    return InvoiceEmailRead.model_validate(email)
+
+
 @router.post("/{record_id}/send", response_model=SendInvoiceResponse)
 async def send_invoice(
     record_id: int,
+    request: Request,
     body: SendInvoiceRequest,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -666,31 +786,156 @@ async def send_invoice(
     except Exception as exc:
         raise HTTPException(422, f"Could not read saved invoice data: {exc}") from exc
 
-    recipient_email = (invoice.to.email or "").strip()
+    recipient_email = (
+        body.recipient_email
+        if "recipient_email" in body.model_fields_set
+        else (invoice.to.email or "").strip()
+    )
     if not recipient_email:
-        raise HTTPException(422, "Client email is required before sending.")
+        raise HTTPException(422, "Recipient email is required before sending.")
 
-    business_name = (invoice.from_.name or "").strip() or "Invoice Assistant"
+    business_name = (
+        body.from_display_name
+        or (invoice.from_.name or "").strip()
+        or "Invoice Assistant"
+    )
     reply_to_email = (
-        (invoice.from_.email or "").strip()
-        or (current_user.email or "").strip()
-        or None
+        body.reply_to_email
+        if "reply_to_email" in body.model_fields_set
+        else (
+            (invoice.from_.email or "").strip()
+            or (current_user.email or "").strip()
+            or None
+        )
     )
-    cc_email = current_user.email.strip() if current_user.email else None
+    cc_email = (
+        body.cc_email
+        if "cc_email" in body.model_fields_set
+        else (current_user.email.strip() if current_user.email else None)
+    )
     pdf_bytes = await _load_record_pdf_bytes(record)
-    email_record = InvoiceEmail(
+    fingerprint_payload = {
+        "record_id": record.id,
+        "recipient_email": recipient_email,
+        "cc_email": cc_email,
+        "reply_to_email": reply_to_email,
+        "from_display_name": business_name,
+        "subject": body.subject.strip(),
+        "message": body.message.strip(),
+        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
+    }
+    request_fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+    if body.idempotency_key:
+        replay_result = await db.execute(
+            select(InvoiceEmail).where(
+                InvoiceEmail.user_id == current_user.id,
+                InvoiceEmail.idempotency_key == body.idempotency_key,
+            )
+        )
+        replay = replay_result.scalar_one_or_none()
+        if replay:
+            if replay.request_fingerprint != request_fingerprint:
+                raise HTTPException(
+                    409,
+                    "This idempotency key is already bound to different email content.",
+                )
+            if replay.status == "sent":
+                return SendInvoiceResponse(email=InvoiceEmailRead.model_validate(replay))
+
+    await enforce_rate_limit(
+        db,
         user_id=current_user.id,
-        invoice_record_id=record.id,
-        recipient_email=recipient_email,
-        cc_email=cc_email,
-        subject=body.subject.strip(),
-        message_body=body.message.strip(),
-        status="pending",
-        provider=email_svc.provider,
+        event_type="invoice.email_send",
+        limit=settings.email_send_limit,
+        window_seconds=settings.email_send_window_seconds,
+        request_id=getattr(request.state, "request_id", None),
     )
-    db.add(email_record)
+
+    email_record: InvoiceEmail | None = None
+    lock_key = (
+        f"{current_user.id}:{body.idempotency_key}"
+        if body.idempotency_key
+        else None
+    )
+    if lock_key:
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": lock_key},
+        )
+        existing_result = await db.execute(
+            select(InvoiceEmail).where(
+                InvoiceEmail.user_id == current_user.id,
+                InvoiceEmail.idempotency_key == body.idempotency_key,
+            )
+        )
+        email_record = existing_result.scalar_one_or_none()
+        if email_record:
+            if email_record.request_fingerprint != request_fingerprint:
+                raise HTTPException(
+                    409,
+                    "This idempotency key is already bound to different email content.",
+                )
+            if email_record.status == "sent":
+                return SendInvoiceResponse(
+                    email=InvoiceEmailRead.model_validate(email_record)
+                )
+            if email_record.status == "pending":
+                now = datetime.now(UTC)
+                if email_record.lease_expires_at and email_record.lease_expires_at > now:
+                    retry_after = max(
+                        1, int((email_record.lease_expires_at - now).total_seconds())
+                    )
+                    raise HTTPException(
+                        409,
+                        "An email send with this idempotency key is already in progress.",
+                        headers={"Retry-After": str(retry_after)},
+                    )
+                raise HTTPException(
+                    409,
+                    (
+                        "This email attempt has an expired, ambiguous delivery state. "
+                        f"Reconcile email attempt {email_record.id} before retrying."
+                    ),
+                )
+
+    if email_record is None:
+        email_record = InvoiceEmail(
+            user_id=current_user.id,
+            invoice_record_id=record.id,
+            recipient_email=recipient_email,
+            cc_email=cc_email,
+            subject=body.subject.strip(),
+            message_body=body.message.strip(),
+            status="pending",
+            provider=email_svc.provider,
+            idempotency_key=body.idempotency_key,
+            request_fingerprint=request_fingerprint,
+            attempt_count=1,
+            attempt_token=str(uuid.uuid4()),
+            lease_expires_at=datetime.now(UTC)
+            + timedelta(seconds=settings.email_send_lease_seconds),
+            provider_message_id=(
+                email_svc.message_id_for_key(lock_key)
+                if lock_key
+                else None
+            ),
+        )
+        db.add(email_record)
+    else:
+        email_record.status = "pending"
+        email_record.error_message = None
+        email_record.attempt_count += 1
+        email_record.attempt_token = str(uuid.uuid4())
+        email_record.lease_expires_at = datetime.now(UTC) + timedelta(
+            seconds=settings.email_send_lease_seconds
+        )
+
     await db.commit()
     await db.refresh(email_record)
+    attempt_token = email_record.attempt_token
 
     try:
         provider_message_id = await email_svc.send_invoice_email(
@@ -702,21 +947,59 @@ async def send_invoice(
             message=email_record.message_body,
             attachment_filename=record.filename,
             attachment_bytes=pdf_bytes,
+            message_id=email_record.provider_message_id,
         )
     except Exception as exc:
-        email_record.status = "failed"
-        email_record.error_message = str(exc)
+        finalized = await db.execute(
+            update(InvoiceEmail)
+            .where(
+                InvoiceEmail.id == email_record.id,
+                InvoiceEmail.status == "pending",
+                InvoiceEmail.attempt_token == attempt_token,
+            )
+            .values(
+                status="failed",
+                lease_expires_at=None,
+                error_message=f"{type(exc).__name__}: provider send failed",
+            )
+        )
         await db.commit()
+        if finalized.rowcount != 1:
+            raise HTTPException(
+                409,
+                "This email attempt was superseded; inspect its current state before retrying.",
+            ) from exc
         await db.refresh(email_record)
-        logger.error("Failed to send invoice id=%d email id=%d: %s", record_id, email_record.id, exc)
-        raise HTTPException(502, f"Email send failed: {exc}") from exc
+        logger.error(
+            "email_send_failed",
+            extra={"exception_type": type(exc).__name__},
+        )
+        raise HTTPException(
+            502, "Email send failed. Retry later using the same send attempt."
+        ) from exc
 
-    email_record.status = "sent"
-    email_record.provider_message_id = provider_message_id
-    email_record.error_message = None
-    email_record.sent_at = datetime.utcnow()
+    finalized = await db.execute(
+        update(InvoiceEmail)
+        .where(
+            InvoiceEmail.id == email_record.id,
+            InvoiceEmail.status == "pending",
+            InvoiceEmail.attempt_token == attempt_token,
+        )
+        .values(
+            status="sent",
+            provider_message_id=provider_message_id,
+            error_message=None,
+            lease_expires_at=None,
+            sent_at=datetime.now(UTC),
+        )
+    )
     await db.commit()
+    if finalized.rowcount != 1:
+        raise HTTPException(
+            409,
+            "This email attempt was superseded; inspect its current state before retrying.",
+        )
     await db.refresh(email_record)
 
-    logger.info("Sent invoice id=%d to %s", record_id, recipient_email)
+    logger.info("email_sent")
     return SendInvoiceResponse(email=InvoiceEmailRead.model_validate(email_record))

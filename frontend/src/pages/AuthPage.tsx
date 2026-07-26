@@ -60,22 +60,22 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background px-6 py-12">
-      <div className="mx-auto flex max-w-4xl flex-col gap-10 md:grid md:grid-cols-[1.2fr_0.8fr]">
-        <section className="space-y-5">
+    <div className="min-h-dvh overflow-x-hidden bg-background px-4 py-8 sm:px-6 sm:py-12">
+      <div className="mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-8 md:grid md:grid-cols-[1.2fr_0.8fr] md:gap-10">
+        <section className="min-w-0 space-y-5">
           <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
-            <LockKeyhole className="h-3.5 w-3.5" />
+            <LockKeyhole aria-hidden="true" className="h-3.5 w-3.5" />
             Private invoice workspace
           </div>
           <div className="space-y-3">
-            <h1 className="max-w-xl text-4xl font-semibold tracking-tight">Invoice Assistant</h1>
-            <p className="max-w-xl text-sm leading-6 text-muted-foreground">
+            <h1 className="max-w-xl text-3xl font-semibold tracking-tight sm:text-4xl">Invoice Assistant</h1>
+            <p className="max-w-xl break-words text-sm leading-6 text-muted-foreground">
               Sign in to keep clients, invoices, catalog items, and generated history scoped to your account.
             </p>
           </div>
         </section>
 
-        <section className="rounded-lg border bg-card p-6 shadow-sm">
+        <section className="w-full min-w-0 rounded-lg border bg-card p-4 shadow-sm sm:p-6">
           {!isSupabaseConfigured && (
             <div className="mb-5 rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm">
               <p className="font-medium text-destructive">Supabase is not configured.</p>
@@ -90,6 +90,7 @@ export default function AuthPage() {
               type="button"
               variant={mode === "login" ? "default" : "outline"}
               onClick={() => setMode("login")}
+              className="min-h-11"
             >
               Log In
             </Button>
@@ -97,23 +98,24 @@ export default function AuthPage() {
               type="button"
               variant={mode === "signup" ? "default" : "outline"}
               onClick={() => setMode("signup")}
+              className="min-h-11"
             >
-              <UserPlus className="mr-1.5 h-4 w-4" />
+              <UserPlus aria-hidden="true" className="mr-1.5 h-4 w-4" />
               Sign Up
             </Button>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Email</Label>
-              <Input type="email" {...register("email", { required: true })} />
+              <Label htmlFor="auth-email">Email</Label>
+              <Input id="auth-email" type="email" autoComplete="email" {...register("email", { required: true })} />
             </div>
             <div className="space-y-1.5">
-              <Label>Password</Label>
-              <Input type="password" {...register("password", { required: true, minLength: 8 })} />
+              <Label htmlFor="auth-password">Password</Label>
+              <Input id="auth-password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} {...register("password", { required: true, minLength: 8 })} />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            <Button type="submit" className="min-h-11 w-full" disabled={loading}>
+              {loading && <Loader2 aria-hidden="true" className="mr-1.5 h-4 w-4 animate-spin" />}
               {mode === "signup" ? "Create Account" : "Log In"}
             </Button>
           </form>

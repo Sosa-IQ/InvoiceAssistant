@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate, useBlocker, type BlockerFunction } from "react-router-dom"
 import { useForm, useFieldArray, useWatch } from "react-hook-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, Trash2, Download, Loader2, GripVertical, Save } from "lucide-react"
+import { Plus, Trash2, Loader2, GripVertical, Save } from "lucide-react"
 import { toast } from "sonner"
 import {
   DndContext,
@@ -20,14 +20,23 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { exportInvoice, getNextInvoiceNumber } from "@/api/invoices"
+import { getNextInvoiceNumber, saveInvoice } from "@/api/invoices"
 import { createClient, createClientAddress, listClients } from "@/api/clients"
+import { EmailInvoiceDialog } from "@/components/EmailInvoiceDialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
-import type { Client, InvoiceData } from "@/types/invoice"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import type { Client, InvoiceData, InvoiceRecord } from "@/types/invoice"
 
 const DRAFT_KEY = "invoice_draft"
 const CLIENT_ADDRESS_LABEL = "Invoice Address"
@@ -96,7 +105,11 @@ export default function InvoiceEditorPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [isExporting, setIsExporting] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [savedRecord, setSavedRecord] = useState<InvoiceRecord | null>(null)
+  const [showEmailPrompt, setShowEmailPrompt] = useState(false)
+  const [emailDialogRecord, setEmailDialogRecord] = useState<InvoiceRecord | null>(null)
+  const suppressDraftRef = useRef(false)
 
   const routeInvoice = (location.state as { invoice?: InvoiceData } | null)?.invoice ?? null
   const initialInvoice: InvoiceData | null =
@@ -110,7 +123,7 @@ export default function InvoiceEditorPage() {
       }
     })()
 
-  const { register, control, handleSubmit, setValue, formState: { isDirty } } =
+  const { register, control, handleSubmit, setValue, reset, formState: { isDirty } } =
     useForm<InvoiceData>({
       defaultValues: initialInvoice ?? {
         invoice_number: "",
@@ -155,6 +168,10 @@ export default function InvoiceEditorPage() {
   const watchedRef = useRef(watchedValues)
   watchedRef.current = watchedValues
   useEffect(() => {
+    if (suppressDraftRef.current) {
+      localStorage.removeItem(DRAFT_KEY)
+      return
+    }
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(watchedRef.current)) } catch { /* ignore */ }
   }, [watchedValues])
 
@@ -286,23 +303,36 @@ export default function InvoiceEditorPage() {
     void syncInvoiceNumber(billTo.client_id)
   }, [billTo?.client_id, currentInvoiceNumber, syncInvoiceNumber])
 
-  async function onExport(data: InvoiceData) {
-    setIsExporting(true)
+  async function onSave(data: InvoiceData) {
+    setIsSaving(true)
     try {
-      const blob = await exportInvoice(data)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `${data.invoice_number || "invoice"}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
+      const record = await saveInvoice(data)
+      const savedInvoice = record.invoice_json
+        ? (JSON.parse(record.invoice_json) as InvoiceData)
+        : data
+      suppressDraftRef.current = true
       clearDraft()
-      toast.success("PDF downloaded.")
+      reset(savedInvoice)
+      setSavedRecord(record)
+      setShowEmailPrompt(true)
+      await queryClient.invalidateQueries({ queryKey: ["invoices"] })
+      toast.success("Invoice saved.")
     } catch {
-      toast.error("Export failed. Save or select a client first, then try again.")
+      toast.error("Save failed. Select a saved client, then try again.")
     } finally {
-      setIsExporting(false)
+      setIsSaving(false)
     }
+  }
+
+  function skipEmail() {
+    setShowEmailPrompt(false)
+    navigate("/invoices")
+  }
+
+  function openEmailDialog() {
+    if (!savedRecord) return
+    setShowEmailPrompt(false)
+    setEmailDialogRecord(savedRecord)
   }
 
   // ── Drag-and-drop ──────────────────────────────────────────────────────────
@@ -328,16 +358,16 @@ export default function InvoiceEditorPage() {
           <Button variant="outline" size="sm" onClick={() => { clearDraft(); navigate("/invoices") }}>
             Discard
           </Button>
-          <Button size="sm" onClick={handleSubmit(onExport)} disabled={isExporting}>
-            {isExporting
+          <Button size="sm" onClick={handleSubmit(onSave)} disabled={isSaving}>
+            {isSaving
               ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              : <Download className="mr-1.5 h-4 w-4" />}
-            Export PDF
+              : <Save className="mr-1.5 h-4 w-4" />}
+            Save
           </Button>
         </div>
       </div>
 
-      <form className="space-y-6" onSubmit={handleSubmit(onExport)}>
+      <form className="space-y-6" onSubmit={handleSubmit(onSave)}>
 
         {/* Header info */}
         <section className="grid grid-cols-2 gap-4">
@@ -573,6 +603,31 @@ export default function InvoiceEditorPage() {
         </section>
 
       </form>
+
+      <Dialog open={showEmailPrompt} onOpenChange={(open) => { if (!open) skipEmail() }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Email this invoice now?</DialogTitle>
+            <DialogDescription>
+              The invoice is saved. You can review the message, preview the PDF, and send it now.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={skipEmail}>Not now</Button>
+            <Button type="button" onClick={openEmailDialog}>Email Invoice</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <EmailInvoiceDialog
+        record={emailDialogRecord}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEmailDialogRecord(null)
+            navigate("/invoices")
+          }
+        }}
+      />
     </div>
   )
 }

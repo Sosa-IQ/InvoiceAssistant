@@ -87,12 +87,7 @@ class VectorStoreService:
                 },
             )
 
-        logger.info(
-            "Stored %d embedded chunks in Supabase for doc_id=%s at %s",
-            len(chunks),
-            doc_id,
-            datetime.utcnow().isoformat(),
-        )
+        logger.info("vector_document_stored")
 
     async def query(
         self,
@@ -152,4 +147,4 @@ class VectorStoreService:
             ),
             {"doc_id": doc_id, "user_id": user_id},
         )
-        logger.info("Deleted Supabase vector chunks for doc_id=%s user_id=%s", doc_id, user_id)
+        logger.info("vector_document_deleted")

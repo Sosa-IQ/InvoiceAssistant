@@ -173,15 +173,18 @@ class OpenAIService:
             )
 
             last_raw = response.choices[0].message.content or ""
-            logger.debug("OpenAI raw response (attempt %d): %.500s", attempt + 1, last_raw)
+            logger.debug("openai_response_received")
 
             try:
                 data = _extract_json(last_raw)
                 schema = InvoiceSchema.model_validate(data)
-                logger.info("OpenAI returned valid invoice JSON on attempt %d.", attempt + 1)
+                logger.info("openai_invoice_validated")
                 return schema.invoice
             except Exception as exc:
-                logger.warning("OpenAI response parse failed (attempt %d): %s", attempt + 1, exc)
+                logger.warning(
+                    "openai_response_validation_failed",
+                    extra={"exception_type": type(exc).__name__},
+                )
                 last_error = exc
 
         raise ValueError(

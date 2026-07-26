@@ -179,6 +179,11 @@ export interface InvoiceEmail {
 export interface SendInvoiceRequest {
   subject: string
   message: string
+  recipient_email?: string | null
+  cc_email?: string | null
+  reply_to_email?: string | null
+  from_display_name?: string | null
+  idempotency_key: string
 }
 
 export interface SendInvoiceResponse {

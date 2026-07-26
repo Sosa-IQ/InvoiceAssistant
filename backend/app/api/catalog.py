@@ -117,7 +117,7 @@ async def create_catalog_item(
     db.add(item)
     await db.commit()
     await db.refresh(item)
-    logger.info("Created catalog item id=%d description=%s", item.id, item.description)
+    logger.info("catalog_item_created")
     return CatalogItemRead.model_validate(item)
 
 
@@ -159,7 +159,7 @@ async def recommend_catalog_items(
         try:
             invoice = InvoiceData.model_validate(json.loads(record.invoice_json or "{}"))
         except Exception:
-            logger.warning("Skipping invalid invoice_json for record id=%d", record.id)
+            logger.warning("catalog_invoice_json_invalid")
             continue
 
         invoice_label = invoice.invoice_number or record.filename

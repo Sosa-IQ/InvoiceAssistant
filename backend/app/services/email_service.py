@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import smtplib
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
@@ -12,6 +13,16 @@ class EmailService:
     def is_configured(self) -> bool:
         return bool(settings.smtp_host and settings.smtp_from_email)
 
+    @staticmethod
+    def message_id_for_key(key: str) -> str:
+        domain = (
+            settings.smtp_from_email.split("@", 1)[1]
+            if "@" in settings.smtp_from_email
+            else "invoice-assistant.local"
+        )
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:40]
+        return f"<invoice-{digest}@{domain}>"
+
     def _build_message(
         self,
         *,
@@ -23,9 +34,10 @@ class EmailService:
         message: str,
         attachment_filename: str,
         attachment_bytes: bytes,
+        message_id: str | None = None,
     ) -> tuple[EmailMessage, str]:
         msg = EmailMessage()
-        sender_name = (from_display_name or settings.smtp_from_name).strip()
+        sender_name = (from_display_name or settings.smtp_from_name or "Invoice Assistant").strip() or "Invoice Assistant"
         msg["From"] = formataddr((sender_name, settings.smtp_from_email))
         msg["To"] = recipient_email
         if cc_email:
@@ -33,7 +45,7 @@ class EmailService:
         if reply_to_email:
             msg["Reply-To"] = reply_to_email
         msg["Subject"] = subject
-        message_id = make_msgid(domain=(settings.smtp_from_email.split("@", 1)[1] if "@" in settings.smtp_from_email else None))
+        message_id = message_id or make_msgid(domain=(settings.smtp_from_email.split("@", 1)[1] if "@" in settings.smtp_from_email else None))
         msg["Message-ID"] = message_id
         msg.set_content(message)
         msg.add_attachment(
@@ -70,6 +82,7 @@ class EmailService:
         message: str,
         attachment_filename: str,
         attachment_bytes: bytes,
+        message_id: str | None = None,
     ) -> str:
         if not self.is_configured():
             raise RuntimeError("SMTP is not configured. Set SMTP_HOST and SMTP_FROM_EMAIL.")
@@ -83,6 +96,7 @@ class EmailService:
             message=message,
             attachment_filename=attachment_filename,
             attachment_bytes=attachment_bytes,
+            message_id=message_id,
         )
         recipients = [recipient_email]
         if cc_email:

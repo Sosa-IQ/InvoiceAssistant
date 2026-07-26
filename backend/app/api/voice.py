@@ -46,7 +46,7 @@ async def _transcribe(audio_bytes: bytes, filename: str, content_type: str) -> s
         )
         r.raise_for_status()
         job_id = r.json()["id"]
-        logger.info("Speechmatics job submitted: %s", job_id)
+        logger.info("transcription_job_submitted")
 
         # 2. Poll for completion (up to ~90 s)
         for _ in range(90):
@@ -54,7 +54,7 @@ async def _transcribe(audio_bytes: bytes, filename: str, content_type: str) -> s
             r = await client.get(f"{_SPEECHMATICS_URL}/jobs/{job_id}")
             r.raise_for_status()
             status = r.json()["job"]["status"]
-            logger.debug("Job %s status: %s", job_id, status)
+            logger.debug("transcription_job_status_%s", status)
             if status == "done":
                 break
             if status in ("rejected", "deleted", "expired"):
@@ -89,15 +89,15 @@ async def transcribe_audio(
 
     filename = audio.filename or "recording.webm"
     content_type = audio.content_type or "audio/webm"
-    logger.info("Transcribing audio: %s (%s, %d bytes)", filename, content_type, len(contents))
+    logger.info("transcription_started")
 
     try:
         transcript = await _transcribe(contents, filename, content_type)
-        logger.info("Transcript for user_id=%s: %.200s", current_user.id, transcript)
+        logger.info("transcription_completed")
         return TranscriptResponse(transcript=transcript)
     except httpx.HTTPStatusError as exc:
-        logger.error("Speechmatics HTTP error %s: %s", exc.response.status_code, exc.response.text)
-        raise HTTPException(502, f"Speechmatics returned {exc.response.status_code}") from exc
+        logger.error("transcription_provider_failed")
+        raise HTTPException(502, "Transcription provider failed.") from exc
     except Exception as exc:
-        logger.error("Transcription failed: %s", exc)
-        raise HTTPException(500, f"Transcription failed: {exc}") from exc
+        logger.error("transcription_failed", extra={"exception_type": type(exc).__name__})
+        raise HTTPException(500, "Transcription failed.") from exc

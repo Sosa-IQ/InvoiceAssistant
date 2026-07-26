@@ -108,8 +108,23 @@ create table if not exists public.invoice_emails (
   status text not null default 'pending',
   provider text not null default 'smtp',
   provider_message_id text,
+  idempotency_key varchar(128),
+  request_fingerprint varchar(64),
+  attempt_count integer not null default 0,
+  attempt_token varchar(36),
+  lease_expires_at timestamptz,
   error_message text,
   sent_at timestamptz,
+  created_at timestamptz not null default now(),
+  constraint uq_invoice_emails_user_idempotency unique (user_id, idempotency_key)
+);
+
+create table if not exists public.security_events (
+  id bigserial primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  event_type varchar(64) not null,
+  outcome varchar(16) not null constraint ck_security_events_outcome check (outcome in ('allowed', 'blocked')),
+  request_id varchar(128),
   created_at timestamptz not null default now()
 );
 
@@ -132,6 +147,8 @@ create index if not exists ix_invoice_embeddings_embedding_hnsw
   on public.invoice_embeddings using hnsw (embedding vector_cosine_ops);
 create index if not exists ix_invoice_emails_user_id on public.invoice_emails(user_id);
 create index if not exists ix_invoice_emails_record_id on public.invoice_emails(invoice_record_id);
+create index if not exists ix_security_events_rate_window
+  on public.security_events(user_id, event_type, created_at);
 
 grant select, insert, update, delete on table
   public.profiles,
@@ -144,6 +161,7 @@ grant select, insert, update, delete on table
   public.invoice_emails
   to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
+grant select on table public.security_events to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.business_settings enable row level security;
@@ -153,6 +171,8 @@ alter table public.catalog_items enable row level security;
 alter table public.invoice_records enable row level security;
 alter table public.invoice_embeddings enable row level security;
 alter table public.invoice_emails enable row level security;
+alter table public.security_events enable row level security;
+alter table public.security_events force row level security;
 
 drop policy if exists "profiles owner select" on public.profiles;
 drop policy if exists "profiles owner insert" on public.profiles;
@@ -206,6 +226,10 @@ drop policy if exists "invoice emails owner all" on public.invoice_emails;
 create policy "invoice emails owner all" on public.invoice_emails for all to authenticated
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
+
+drop policy if exists security_events_owner on public.security_events;
+create policy security_events_owner on public.security_events for select to authenticated
+  using (user_id = auth.uid());
 
 insert into storage.buckets (id, name, public)
 values ('invoices', 'invoices', false)
