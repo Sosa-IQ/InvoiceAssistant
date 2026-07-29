@@ -139,9 +139,9 @@ class OpenAIService:
         next_invoice_number: str,
         client_context: list[dict] | None = None,
         catalog_context: list[dict] | None = None,
-    ) -> InvoiceData:
+    ) -> tuple[InvoiceData, int, int]:
         """
-        Call gpt-4o-mini and return a validated InvoiceData.
+        Call gpt-4o-mini and return (InvoiceData, tokens_in, tokens_out).
 
         Retries up to MAX_RETRIES times on JSON/validation failure.
         Raises ValueError (caught by the route and returned as HTTP 422)
@@ -154,9 +154,46 @@ class OpenAIService:
             client_context=client_context or [],
             catalog_context=catalog_context or [],
         )
+        return self._complete_invoice(system_prompt=system_prompt, user_content=prompt)
 
+    def revise_invoice(
+        self,
+        *,
+        instruction: str,
+        current_invoice: dict,
+        business_profile: dict,
+        next_invoice_number: str,
+    ) -> tuple[InvoiceData, int, int]:
+        """Update an existing invoice JSON from a plain-language instruction."""
+        today = date.today().isoformat()
+        schema_json = json.dumps(_SCHEMA_EXAMPLE, indent=2)
+        system_prompt = f"""You are an invoice editing assistant. Return ONLY valid JSON matching the schema below.
+No explanations, no markdown fences, no trailing commas.
+
+Rules:
+- Start from the CURRENT INVOICE JSON and apply the user's instruction
+- Calculate each line item subtotal: quantity * unit_price
+- Keep invoice_number exactly "{next_invoice_number}" unless the user explicitly asks to change it
+- Use today's date ({today}) only if the user asks to change the issue date and does not specify one
+- Use null (never "") for unknown optional fields
+- Do not invent work the user did not request
+- If the instruction is not in English, translate edited invoice text fields to English
+
+SCHEMA:
+{schema_json}
+
+BUSINESS PROFILE:
+{json.dumps(business_profile, indent=2)}
+
+CURRENT INVOICE:
+{json.dumps(current_invoice, indent=2)}"""
+        return self._complete_invoice(system_prompt=system_prompt, user_content=instruction)
+
+    def _complete_invoice(self, *, system_prompt: str, user_content: str) -> tuple[InvoiceData, int, int]:
         last_error: Exception | None = None
         last_raw: str = ""
+        tokens_in = 0
+        tokens_out = 0
 
         for attempt in range(self.MAX_RETRIES + 1):
             if attempt > 0:
@@ -166,11 +203,15 @@ class OpenAIService:
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt},
+                    {"role": "user", "content": user_content},
                 ],
                 temperature=0.2,
                 max_tokens=2048,
             )
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                tokens_in += int(getattr(usage, "prompt_tokens", 0) or 0)
+                tokens_out += int(getattr(usage, "completion_tokens", 0) or 0)
 
             last_raw = response.choices[0].message.content or ""
             logger.debug("openai_response_received")
@@ -179,7 +220,7 @@ class OpenAIService:
                 data = _extract_json(last_raw)
                 schema = InvoiceSchema.model_validate(data)
                 logger.info("openai_invoice_validated")
-                return schema.invoice
+                return schema.invoice, tokens_in, tokens_out
             except Exception as exc:
                 logger.warning(
                     "openai_response_validation_failed",

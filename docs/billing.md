@@ -20,10 +20,14 @@ The implementation does not trust the browser for prices, plan state, redirect U
 
 No new invoice or payment-tracking features are introduced.
 
-- **Free:** manual invoices, clients, catalog, and PDF export.
-- **Pro:** existing AI-assisted invoice generation, voice transcription, and invoice email delivery.
+- **Free:** manual invoices, clients, catalog, PDF export, and bulk PDF import (stored without embeddings).
+- **Pro ($12/mo or $120/yr; launch promo $9/mo for 3 months when configured in Stripe):** email delivery, AI generate/revise, voice transcription, automatic embeddings for smart suggestions.
+- **AI usage:** metered by tokens (generate + revise share one monthly pool). UI shows a plain usage bar plus “How usage works.” Monthly included allotment does **not** roll over.
+- **Voice usage:** metered by audio seconds, with per-clip duration/size caps and hourly request limits.
+- **Top-up packs (Pro only):** one-time Stripe Checkout payments. Pack balances **roll until used**, but are **frozen** (not deleted) when Pro ends and unfreeze on resubscribe. Spend order: included monthly first, then packs.
+- **Embeddings:** Pro-only. Free imports/saves stay stored; on Free→Pro upgrade, prior invoices are backfilled automatically. Pro auto-indexes on save/update.
 
-`BILLING_ENFORCEMENT_ENABLED` defaults to `false`, so adding Stripe test credentials does not unexpectedly block existing users.
+`BILLING_ENFORCEMENT_ENABLED` defaults to `false`, so adding Stripe test credentials does not unexpectedly block existing users. When enforcement is off, metering still records usage but does not hard-block by quota.
 
 ## 1. Apply the schema
 
@@ -33,7 +37,7 @@ cd backend
 .venv/bin/alembic current
 ```
 
-The expected head is `0010_billing`. This adds `subscriptions` and the private `stripe_webhook_events` idempotency ledger.
+The expected head is `0011_usage_metering`. This includes `subscriptions`, the private `stripe_webhook_events` ledger, `usage_events`, and `usage_pack_credits`.
 
 ## 2. Create a test product and recurring price
 
@@ -105,8 +109,18 @@ Subscribe to:
 - `customer.subscription.created`
 - `customer.subscription.updated`
 - `customer.subscription.deleted`
+- `checkout.session.completed` (required for one-time usage pack purchases)
 
 Put that endpoint's production `whsec_...` value in the production backend secret store. Use live-mode `sk_live_...` and `price_...` values only after test-mode verification and explicit release approval, and set `STRIPE_EXPECTED_LIVEMODE=true` at the same time so live events are accepted and stray test events are rejected.
+
+## Usage packs (optional)
+
+Create two one-time (non-recurring) Prices in Stripe test mode, e.g.:
+
+- AI top-up → set `STRIPE_AI_PACK_PRICE_ID` (credits `AI_PACK_TOKENS`, default 1_000_000)
+- Voice top-up → set `STRIPE_VOICE_PACK_PRICE_ID` (credits `VOICE_PACK_SECONDS`, default 3600)
+
+Pack Checkout is Pro-only. Webhook `checkout.session.completed` with `mode=payment` and metadata `pack_kind` credits the tenant. Losing Pro freezes pack spend; balances are preserved for resubscribe.
 
 ## Safe rollback
 

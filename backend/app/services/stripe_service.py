@@ -39,26 +39,26 @@ class StripeService:
         cancel_url: str,
         idempotency_key: str,
         expires_at: int,
+        mode: str = "subscription",
+        metadata: dict | None = None,
     ) -> dict:
-        session = await asyncio.to_thread(
-            stripe.checkout.Session.create,
-            api_key=settings.stripe_secret_key,
-            idempotency_key=idempotency_key,
-            mode="subscription",
-            customer=customer_id,
-            line_items=[{"price": price_id, "quantity": 1}],
-            client_reference_id=user_id,
-            metadata={"user_id": user_id},
-            subscription_data={"metadata": {"user_id": user_id}},
-            success_url=success_url,
-            cancel_url=cancel_url,
-            # Expire the hosted session in lockstep with the local idempotency
-            # key TTL, so once the key rotates no older session is still open.
-            expires_at=expires_at,
-            allow_promotion_codes=True,
-        )
-        # Structured data (not just the URL) so the caller can persist the
-        # session id/expiry and later detect that it is still open.
+        meta = {"user_id": user_id, **(metadata or {})}
+        kwargs: dict = {
+            "api_key": settings.stripe_secret_key,
+            "idempotency_key": idempotency_key,
+            "mode": mode,
+            "customer": customer_id,
+            "line_items": [{"price": price_id, "quantity": 1}],
+            "client_reference_id": user_id,
+            "metadata": meta,
+            "success_url": success_url,
+            "cancel_url": cancel_url,
+            "expires_at": expires_at,
+        }
+        if mode == "subscription":
+            kwargs["subscription_data"] = {"metadata": {"user_id": user_id}}
+            kwargs["allow_promotion_codes"] = True
+        session = await asyncio.to_thread(stripe.checkout.Session.create, **kwargs)
         return {
             "id": str(session["id"]),
             "url": str(session["url"]),

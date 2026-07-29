@@ -79,7 +79,8 @@ export default function PricingPage() {
           <p className="text-sm font-black uppercase tracking-[0.16em] text-[#e45441]">Pricing</p>
           <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Simple plans. No mystery.</h1>
           <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-[#557067]">
-            Start with the essentials. Upgrade only when you need assisted drafting, voice input, or email delivery.
+            Free covers manual invoicing and PDFs. Pro adds email, AI drafting and edits, and voice —
+            $12/month or $120/year, with a launch promo of $9/month for the first 3 months when available.
           </p>
         </div>
 

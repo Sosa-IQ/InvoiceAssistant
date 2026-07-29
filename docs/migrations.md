@@ -23,6 +23,7 @@ whichever process last booted, with no version, no review, and no way back.
 | `0008_email_templates` | `business_settings.default_email_subject` / `default_email_message`, tenant-customizable defaults used to compose invoice send emails. |
 | `0009_onboarding_state` | Persisted onboarding completion timestamp. Existing settings rows are backfilled complete; settings created afterward start incomplete. |
 | `0010_billing` | Tenant subscription state, Stripe identifiers/event ordering, durable Checkout idempotency metadata, and the private webhook-event ledger with forced RLS. |
+| `0011_usage_metering` | AI/voice usage event ledger and rolling Pro-only pack credits (`usage_events`, `usage_pack_credits`) with owner-select RLS. |
 
 ## Prerequisites
 

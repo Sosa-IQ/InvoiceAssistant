@@ -277,7 +277,12 @@ async def test_plans_use_stripe_authoritative_price_not_env_display(billing_api_
         "price_cents": 1500,
         "currency": "USD",
         "interval": "month",
-        "features": ["Email invoice delivery", "AI-assisted invoice drafts", "Voice input"],
+        "features": [
+            "Email invoice delivery",
+            "AI-assisted drafting and edits",
+            "Voice input",
+            "Automatic smart suggestions from your invoices",
+        ],
     }
 
 

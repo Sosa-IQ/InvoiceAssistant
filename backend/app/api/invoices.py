@@ -28,6 +28,7 @@ from app.models.schemas import (
     InvoiceRecordRead,
     NextInvoiceNumberResponse,
     ReconcileInvoiceEmailRequest,
+    ReviseInvoiceRequest,
     SendInvoiceRequest,
     SendInvoiceResponse,
     UploadResult,
@@ -43,6 +44,11 @@ from app.services.pdf_generator import PDFGeneratorService
 from app.services.pdf_parser import PDFParserService
 from app.services.rag_service import RAGService
 from app.services.storage import StorageService
+from app.services.usage_service import (
+    consume_ai_tokens,
+    ensure_ai_budget_before_call,
+    user_is_pro,
+)
 from app.security import enforce_rate_limit
 
 logger = logging.getLogger(__name__)
@@ -187,29 +193,33 @@ async def upload_invoices(
             ))
             continue
 
-        # 4. Chunk + embed
-        chunks = parser.chunk_text(text)
-        await vector_store.add_document(
-            db,
-            doc_id=doc_id,
-            user_id=current_user.id,
-            invoice_record_id=record.id,
-            filename=filename,
-            chunks=chunks,
-        )
-
-        # 5. Extract metadata hints and finalize record
+        # 4. Chunk + embed only for Pro. Free keeps the PDF stored for later
+        # backfill after upgrade; non-technical users never manage a training set.
         hints = parser.extract_metadata_hints(text)
         record.invoice_number = hints.get("invoice_number")
         record.client_name = hints.get("client_name")
         record.issue_date = hints.get("issue_date")
         record.grand_total = hints.get("grand_total")
-        record.status = "indexed"
+
+        if await user_is_pro(db, current_user.id):
+            chunks = parser.chunk_text(text)
+            await vector_store.add_document(
+                db,
+                doc_id=doc_id,
+                user_id=current_user.id,
+                invoice_record_id=record.id,
+                filename=filename,
+                chunks=chunks,
+            )
+            record.status = "indexed"
+            logger.info("upload_indexed")
+        else:
+            record.status = "stored"
+            logger.info("upload_stored_without_embeddings")
 
         await db.commit()
         await db.refresh(record)
 
-        logger.info("upload_indexed")
         results.append(UploadResult(
             filename=filename,
             success=True,
@@ -329,16 +339,12 @@ async def generate_invoice(
     Uses RAG to pull relevant context from previously uploaded invoices,
     then calls OpenAI gpt-4o-mini to produce a structured invoice JSON.
     """
-    await enforce_rate_limit(
-        db,
-        user_id=current_user.id,
-        event_type="invoice.generate",
-        limit=settings.invoice_generation_limit,
-        window_seconds=settings.invoice_generation_window_seconds,
-        request_id=getattr(request.state, "request_id", None),
-    )
-    # 1. Determine next invoice number from the DB
-    # 2. Load business settings (may be empty on first use)
+    prompt = body.prompt.strip()
+    if len(prompt) > settings.ai_max_prompt_chars:
+        raise HTTPException(422, detail=f"Prompt must be at most {settings.ai_max_prompt_chars} characters.")
+    request_id = getattr(request.state, "request_id", None)
+    await ensure_ai_budget_before_call(db, user_id=current_user.id, request_id=request_id)
+
     settings_row = await _business_settings(db, current_user.id)
     business_profile: dict = {}
     if settings_row:
@@ -358,7 +364,6 @@ async def generate_invoice(
             "payment_notes": settings_row.payment_notes,
         }
 
-    # 3. Load all clients with their addresses for context injection
     clients_result = await db.execute(
         select(Client).options(selectinload(Client.addresses)).where(Client.user_id == current_user.id).order_by(Client.name)
     )
@@ -376,7 +381,6 @@ async def generate_invoice(
         for c in clients_result.scalars().all()
     ]
 
-    # 4. Load catalog items for reusable line item context
     catalog_result = await db.execute(select(CatalogItem).where(CatalogItem.user_id == current_user.id).order_by(CatalogItem.description))
     catalog_context = [
         {
@@ -389,15 +393,13 @@ async def generate_invoice(
         for item in catalog_result.scalars().all()
     ]
 
-    # 5. Retrieve RAG context
     vector_store = request.app.state.vector_store
     rag_svc = RAGService(vector_store)
-    rag_context, docs_used = await rag_svc.get_context(db, body.prompt, current_user.id)
+    rag_context, docs_used = await rag_svc.get_context(db, prompt, current_user.id)
 
-    # 6. Call OpenAI
     try:
-        invoice_data = openai_svc.generate_invoice(
-            prompt=body.prompt,
+        invoice_data, tokens_in, tokens_out = openai_svc.generate_invoice(
+            prompt=prompt,
             business_profile=business_profile,
             rag_context=rag_context,
             next_invoice_number="assigned-after-client-selection",
@@ -406,7 +408,15 @@ async def generate_invoice(
         )
     except ValueError as exc:
         logger.error("invoice_generation_failed", extra={"exception_type": type(exc).__name__})
-        raise HTTPException(422, detail="A valid invoice could not be generated from that prompt.")
+        raise HTTPException(422, detail="A valid invoice could not be generated from that prompt.") from exc
+
+    await consume_ai_tokens(
+        db,
+        user_id=current_user.id,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        request_id=request_id,
+    )
 
     if invoice_data.to.client_id is not None:
         client = await _get_owned_client(db, current_user.id, invoice_data.to.client_id)
@@ -428,10 +438,69 @@ async def generate_invoice(
     return GenerateInvoiceResponse(invoice=invoice_data, rag_docs_used=docs_used)
 
 
+@router.post("/revise", response_model=GenerateInvoiceResponse)
+async def revise_invoice(
+    request: Request,
+    body: ReviseInvoiceRequest,
+    current_user: AuthenticatedUser = Depends(require_pro_entitlement),
+    db: AsyncSession = Depends(get_db),
+) -> GenerateInvoiceResponse:
+    """Apply an AI instruction to an existing draft invoice (same token meter)."""
+    instruction = body.instruction.strip()
+    if len(instruction) > settings.ai_max_prompt_chars:
+        raise HTTPException(422, detail=f"Instruction must be at most {settings.ai_max_prompt_chars} characters.")
+    request_id = getattr(request.state, "request_id", None)
+    await ensure_ai_budget_before_call(db, user_id=current_user.id, request_id=request_id)
+
+    settings_row = await _business_settings(db, current_user.id)
+    business_profile: dict = {}
+    if settings_row:
+        business_profile = {
+            "name": settings_row.name,
+            "address": settings_row.address,
+            "email": settings_row.email,
+            "phone": settings_row.phone,
+            "tax_id": settings_row.tax_id,
+            "default_currency": settings_row.default_currency,
+            "default_tax_pct": settings_row.default_tax_pct,
+            "payment_terms": settings_row.payment_terms,
+            "bank_name": settings_row.bank_name,
+            "account_name": settings_row.account_name,
+            "account_number": settings_row.account_number,
+            "routing_number": settings_row.routing_number,
+            "payment_notes": settings_row.payment_notes,
+        }
+
+    current = body.invoice.model_dump(by_alias=True)
+    next_number = body.invoice.invoice_number or "assigned-after-client-selection"
+    try:
+        invoice_data, tokens_in, tokens_out = openai_svc.revise_invoice(
+            instruction=instruction,
+            current_invoice=current,
+            business_profile=business_profile,
+            next_invoice_number=next_number,
+        )
+    except ValueError as exc:
+        logger.error("invoice_revise_failed", extra={"exception_type": type(exc).__name__})
+        raise HTTPException(422, detail="A valid invoice could not be produced from that instruction.") from exc
+
+    await consume_ai_tokens(
+        db,
+        user_id=current_user.id,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        request_id=request_id,
+    )
+    logger.info("invoice_draft_revised")
+    return GenerateInvoiceResponse(invoice=invoice_data, rag_docs_used=0)
+
+
 async def _persist_invoice(
     db: AsyncSession,
     user: AuthenticatedUser,
     invoice: InvoiceData,
+    *,
+    vector_store=None,
 ) -> tuple[InvoiceRecord, bytes]:
     """Validate, number, render, store and upsert an invoice.
 
@@ -531,11 +600,21 @@ async def _persist_invoice(
 
     await db.commit()
     await db.refresh(record)
+    # Pro tenants auto-index saved/updated invoices so users never manage a training set.
+    if vector_store is not None and await user_is_pro(db, user.id) and record.invoice_json:
+        try:
+            await _auto_index_record(db, vector_store=vector_store, user_id=user.id, record=record)
+        except Exception as exc:
+            logger.warning(
+                "auto_index_after_save_failed",
+                extra={"exception_type": type(exc).__name__},
+            )
     return record, pdf_bytes
 
 
 @router.post("/export")
 async def export_invoice(
+    request: Request,
     body: InvoiceData,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -544,7 +623,9 @@ async def export_invoice(
     Accept an InvoiceData payload, recalculate totals server-side, render to PDF,
     save to disk, upsert the invoice_records row, and return the PDF as a download.
     """
-    record, pdf_bytes = await _persist_invoice(db, current_user, body)
+    record, pdf_bytes = await _persist_invoice(
+        db, current_user, body, vector_store=request.app.state.vector_store
+    )
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
@@ -554,6 +635,7 @@ async def export_invoice(
 
 @router.post("/save", response_model=InvoiceRecordRead)
 async def save_invoice(
+    request: Request,
     body: InvoiceData,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -563,7 +645,9 @@ async def save_invoice(
     record as JSON (no forced download) so the editor can open the email modal
     for the just-saved invoice.
     """
-    record, _ = await _persist_invoice(db, current_user, body)
+    record, _ = await _persist_invoice(
+        db, current_user, body, vector_store=request.app.state.vector_store
+    )
     return InvoiceRecordRead.model_validate(record)
 
 
@@ -602,16 +686,51 @@ def _invoice_to_text(invoice: InvoiceData) -> str:
     return "\n".join(lines)
 
 
+async def _auto_index_record(
+    db: AsyncSession,
+    *,
+    vector_store,
+    user_id: str,
+    record: InvoiceRecord,
+) -> None:
+    """Embed/replace vectors for one saved invoice. Best-effort; never blocks Free."""
+    if not record.invoice_json:
+        return
+    invoice = InvoiceData.model_validate(json.loads(record.invoice_json))
+    text = _invoice_to_text(invoice)
+    if record.rag_doc_id:
+        await vector_store.delete_document(db, doc_id=record.rag_doc_id, user_id=user_id)
+    doc_id = str(uuid.uuid4())
+    chunks = parser.chunk_text(text)
+    await vector_store.add_document(
+        db,
+        doc_id=doc_id,
+        user_id=user_id,
+        invoice_record_id=record.id,
+        filename=record.filename,
+        chunks=chunks,
+    )
+    record.rag_doc_id = doc_id
+    # Keep export lifecycle status so email/send still treats the invoice as exported.
+    if record.status in {"stored", "draft"}:
+        record.status = "indexed"
+    elif record.status not in {"exported", "indexed"}:
+        record.status = "indexed"
+    await db.commit()
+    await db.refresh(record)
+
+
 @router.post("/{record_id}/index", response_model=InvoiceRecordRead)
 async def index_invoice(
     record_id: int,
     request: Request,
-    current_user: AuthenticatedUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(require_pro_entitlement),
     db: AsyncSession = Depends(get_db),
 ) -> InvoiceRecordRead:
     """
     Add (or re-index) an exported invoice into the Supabase vector store.
     Uses the stored invoice JSON instead of re-parsing the PDF.
+    Pro-only: Free imports stay stored until upgrade backfill.
     """
     res = await db.execute(select(InvoiceRecord).where(InvoiceRecord.id == record_id, InvoiceRecord.user_id == current_user.id))
     record = res.scalar_one_or_none()
@@ -620,32 +739,10 @@ async def index_invoice(
     if not record.invoice_json:
         raise HTTPException(422, "No invoice data available for this record. Re-export the invoice to enable indexing.")
 
-    # Parse the stored JSON back into InvoiceData
-    invoice = InvoiceData.model_validate(json.loads(record.invoice_json))
-    text = _invoice_to_text(invoice)
-
     vector_store = request.app.state.vector_store
-
-    # Remove old vectors if previously indexed
-    if record.rag_doc_id:
-        await vector_store.delete_document(db, doc_id=record.rag_doc_id, user_id=current_user.id)
-        logger.info("vector_document_removed")
-
-    doc_id = str(uuid.uuid4())
-    chunks = parser.chunk_text(text)
-    await vector_store.add_document(
-        db,
-        doc_id=doc_id,
-        user_id=current_user.id,
-        invoice_record_id=record.id,
-        filename=record.filename,
-        chunks=chunks,
+    await _auto_index_record(
+        db, vector_store=vector_store, user_id=current_user.id, record=record
     )
-
-    record.rag_doc_id = doc_id
-    await db.commit()
-    await db.refresh(record)
-
     logger.info("invoice_document_indexed")
     return InvoiceRecordRead.model_validate(record)
 

@@ -20,7 +20,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { getNextInvoiceNumber, saveInvoice } from "@/api/invoices"
+import { getNextInvoiceNumber, reviseInvoice, saveInvoice } from "@/api/invoices"
 import { createClient, createClientAddress, listClients } from "@/api/clients"
 import { EmailInvoiceDialog } from "@/components/EmailInvoiceDialog"
 import { Button } from "@/components/ui/button"
@@ -109,6 +109,8 @@ export default function InvoiceEditorPage() {
   const [savedRecord, setSavedRecord] = useState<InvoiceRecord | null>(null)
   const [showEmailPrompt, setShowEmailPrompt] = useState(false)
   const [emailDialogRecord, setEmailDialogRecord] = useState<InvoiceRecord | null>(null)
+  const [aiInstruction, setAiInstruction] = useState("")
+  const [aiRevising, setAiRevising] = useState(false)
   const suppressDraftRef = useRef(false)
 
   const routeInvoice = (location.state as { invoice?: InvoiceData } | null)?.invoice ?? null
@@ -123,7 +125,7 @@ export default function InvoiceEditorPage() {
       }
     })()
 
-  const { register, control, handleSubmit, setValue, reset, formState: { isDirty } } =
+  const { register, control, handleSubmit, setValue, reset, getValues, formState: { isDirty } } =
     useForm<InvoiceData>({
       defaultValues: initialInvoice ?? {
         invoice_number: "",
@@ -303,6 +305,25 @@ export default function InvoiceEditorPage() {
     void syncInvoiceNumber(billTo.client_id)
   }, [billTo?.client_id, currentInvoiceNumber, syncInvoiceNumber])
 
+  async function onAiRevise() {
+    const instruction = aiInstruction.trim()
+    if (!instruction) {
+      toast.error("Describe what to change.")
+      return
+    }
+    setAiRevising(true)
+    try {
+      const { invoice } = await reviseInvoice(instruction, getValues())
+      reset(invoice)
+      setAiInstruction("")
+      toast.success("Draft updated with AI.")
+    } catch {
+      toast.error("AI could not update this draft. Try a clearer instruction or edit manually.")
+    } finally {
+      setAiRevising(false)
+    }
+  }
+
   async function onSave(data: InvoiceData) {
     setIsSaving(true)
     try {
@@ -368,6 +389,27 @@ export default function InvoiceEditorPage() {
       </div>
 
       <form className="space-y-6" onSubmit={handleSubmit(onSave)}>
+
+        <section className="rounded-[24px] border bg-[#fffdf8] p-4 shadow-sm sm:p-5">
+          <Label htmlFor="ai-revise">Update with AI</Label>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Keep this draft and describe changes. Uses your AI usage allowance.
+          </p>
+          <Textarea
+            id="ai-revise"
+            className="mt-3 min-h-24"
+            value={aiInstruction}
+            onChange={(e) => setAiInstruction(e.target.value)}
+            placeholder="Example: Change tax to 6.35% and add a travel line for $40"
+            maxLength={8000}
+          />
+          <div className="mt-3 flex justify-end">
+            <Button type="button" className="min-h-11 rounded-xl" disabled={aiRevising} onClick={() => void onAiRevise()}>
+              {aiRevising ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              Update draft
+            </Button>
+          </div>
+        </section>
 
         {/* Header info */}
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
