@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -78,9 +78,15 @@ class BusinessSettingsRead(BaseModel):
     payment_notes: Optional[str] = None
     default_email_subject: str = DEFAULT_EMAIL_SUBJECT_TEMPLATE
     default_email_message: str = DEFAULT_EMAIL_MESSAGE_TEMPLATE
+    onboarding_completed_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def onboarding_completed(self) -> bool:
+        return self.onboarding_completed_at is not None
 
 
 class BusinessSettingsUpdate(BaseModel):
@@ -100,6 +106,9 @@ class BusinessSettingsUpdate(BaseModel):
     payment_notes: Optional[str] = None
     default_email_subject: str = Field(default=DEFAULT_EMAIL_SUBJECT_TEMPLATE, max_length=200)
     default_email_message: str = Field(default=DEFAULT_EMAIL_MESSAGE_TEMPLATE, max_length=5000)
+    # Omission leaves onboarding state unchanged. The completion timestamp is
+    # set server-side; clients may only toggle this boolean, never write a time.
+    onboarding_completed: Optional[bool] = None
 
     @field_validator("email")
     @classmethod
@@ -424,3 +433,34 @@ class InvoiceEmailAttemptRead(InvoiceEmailRead):
 
 class SendInvoiceResponse(BaseModel):
     email: InvoiceEmailRead
+
+
+class BillingPlanRead(BaseModel):
+    code: Literal["free", "pro"]
+    name: str
+    price_cents: int
+    currency: str
+    interval: Literal["month", "year"]
+    features: list[str]
+
+
+class BillingPlansResponse(BaseModel):
+    configured: bool
+    enforcement_enabled: bool
+    plans: list[BillingPlanRead]
+
+
+class BillingStatusRead(BaseModel):
+    plan: Literal["free", "pro"] = "free"
+    status: str = "free"
+    stripe_customer_id: Optional[str] = None
+    stripe_subscription_id: Optional[str] = None
+    stripe_price_id: Optional[str] = None
+    current_period_end: Optional[datetime] = None
+    cancel_at_period_end: bool = False
+    configured: bool
+    enforcement_enabled: bool
+
+
+class BillingSessionResponse(BaseModel):
+    url: str

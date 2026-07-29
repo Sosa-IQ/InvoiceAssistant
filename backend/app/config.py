@@ -1,6 +1,7 @@
 import math
 from pathlib import Path
 from typing import Self
+from urllib.parse import urlsplit
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -40,6 +41,14 @@ class Settings(BaseSettings):
     email_send_lease_seconds: int = 900
     invoice_generation_limit: int = 20
     invoice_generation_window_seconds: int = 3600
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_pro_price_id: str = ""
+    stripe_pro_price_cents: int = 1200
+    stripe_currency: str = "USD"
+    stripe_expected_livemode: bool = False
+    billing_enforcement_enabled: bool = False
+    frontend_url: str = "http://localhost:5173"
 
     @model_validator(mode="after")
     def validate_operational_security(self) -> Self:
@@ -71,7 +80,73 @@ class Settings(BaseSettings):
         )
         if any(value < 1 for value in limits):
             raise ValueError("Rate limits and windows must be positive.")
+        stripe_values = (
+            self.stripe_secret_key,
+            self.stripe_webhook_secret,
+            self.stripe_pro_price_id,
+        )
+        if any(stripe_values) and not all(stripe_values):
+            raise ValueError(
+                "Stripe secret key, webhook secret, and Pro price ID must be "
+                "configured together or all left blank."
+            )
+        if self.billing_enforcement_enabled and not all(stripe_values):
+            raise ValueError(
+                "Stripe secret key, webhook secret, and Pro price ID are required "
+                "when billing enforcement is enabled."
+            )
+        # When a Stripe secret key is configured, its mode must match the
+        # explicit expected livemode so a test key can never be paired with a
+        # live-mode webhook expectation (or vice versa). The disabled fallback
+        # (no key) is intentionally left valid.
+        if self.stripe_secret_key:
+            is_live_key = self.stripe_secret_key.startswith("sk_live_")
+            is_test_key = self.stripe_secret_key.startswith("sk_test_")
+            if not (is_live_key or is_test_key):
+                raise ValueError("STRIPE_SECRET_KEY must be an sk_test_ or sk_live_ server key.")
+            if (is_live_key or is_test_key) and is_live_key != self.stripe_expected_livemode:
+                raise ValueError(
+                    "STRIPE_SECRET_KEY mode must match STRIPE_EXPECTED_LIVEMODE "
+                    "(use sk_live_ only when STRIPE_EXPECTED_LIVEMODE is true)."
+                )
+        if self.stripe_pro_price_cents < 0:
+            raise ValueError("STRIPE_PRO_PRICE_CENTS cannot be negative.")
+        self.stripe_currency = self.stripe_currency.upper()
+        if len(self.stripe_currency) != 3 or not self.stripe_currency.isalpha():
+            raise ValueError("STRIPE_CURRENCY must be a three-letter currency code.")
+        parsed_frontend = urlsplit(self.frontend_url.strip())
+        if parsed_frontend.scheme not in {"http", "https"} or not parsed_frontend.hostname:
+            raise ValueError("FRONTEND_URL must be an HTTP(S) origin.")
+        try:
+            parsed_frontend.port
+        except ValueError as exc:
+            raise ValueError("FRONTEND_URL contains an invalid port.") from exc
+        if (
+            parsed_frontend.username is not None
+            or parsed_frontend.password is not None
+            or parsed_frontend.path not in {"", "/"}
+            or parsed_frontend.query
+            or parsed_frontend.fragment
+        ):
+            raise ValueError(
+                "FRONTEND_URL must contain only scheme, host, and optional port."
+            )
+        self.frontend_url = f"{parsed_frontend.scheme}://{parsed_frontend.netloc}"
+        if (
+            all(stripe_values)
+            and self.app_environment.strip().lower() in {"production", "prod"}
+            and not self.frontend_url.lower().startswith("https://")
+        ):
+            raise ValueError("Production FRONTEND_URL must use HTTPS.")
         return self
+
+    @property
+    def stripe_configured(self) -> bool:
+        return bool(
+            self.stripe_secret_key
+            and self.stripe_webhook_secret
+            and self.stripe_pro_price_id
+        )
 
     @property
     def max_upload_bytes(self) -> int:
@@ -79,7 +154,14 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_database_url(self) -> str:
-        return self.database_url
+        # Supabase dashboard copies often use postgresql://; SQLAlchemy needs the
+        # asyncpg driver name. Normalize here so backend/.env works either way.
+        url = self.database_url
+        if url.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + url[len("postgresql://") :]
+        if url.startswith("postgres://"):
+            return "postgresql+asyncpg://" + url[len("postgres://") :]
+        return url
 
     @property
     def invoices_dir(self) -> Path:

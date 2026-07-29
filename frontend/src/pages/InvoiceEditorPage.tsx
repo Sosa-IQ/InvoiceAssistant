@@ -84,10 +84,10 @@ function SortableRow({ id, children }: { id: string; children: React.ReactNode }
       className="border-b border-border/40"
     >
       {/* Drag handle cell */}
-      <td className="py-1.5 pr-1 w-6">
+      <td className="py-1.5 pr-1 w-12">
         <button
           type="button"
-          className="flex items-center justify-center cursor-grab active:cursor-grabbing touch-none text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+          className="flex h-11 w-11 items-center justify-center cursor-grab active:cursor-grabbing touch-none rounded-md text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="Drag to reorder"
           {...attributes}
           {...listeners}
@@ -351,14 +351,14 @@ export default function InvoiceEditorPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Invoice Editor</h1>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => { clearDraft(); navigate("/invoices") }}>
+    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div><h1 className="text-3xl font-black tracking-tight">Invoice editor</h1><p className="mt-1 text-sm text-muted-foreground">Review the details before you save or export.</p></div>
+        <div className="grid grid-cols-2 gap-2 sm:flex">
+          <Button variant="outline" size="sm" className="h-11" onClick={() => { clearDraft(); navigate("/invoices") }}>
             Discard
           </Button>
-          <Button size="sm" onClick={handleSubmit(onSave)} disabled={isSaving}>
+          <Button size="sm" className="h-11" onClick={handleSubmit(onSave)} disabled={isSaving}>
             {isSaving
               ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
               : <Save className="mr-1.5 h-4 w-4" />}
@@ -370,7 +370,7 @@ export default function InvoiceEditorPage() {
       <form className="space-y-6" onSubmit={handleSubmit(onSave)}>
 
         {/* Header info */}
-        <section className="grid grid-cols-2 gap-4">
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Invoice Number</Label>
             <Input
@@ -388,7 +388,7 @@ export default function InvoiceEditorPage() {
         <Separator />
 
         {/* From / To */}
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <section className="space-y-3">
             <div className="flex h-8 items-center">
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">From</h2>
@@ -407,7 +407,7 @@ export default function InvoiceEditorPage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-7 px-2.5 text-xs"
+                  className="h-11 px-3 text-xs"
                   onClick={toggleClientPicker}
                   disabled={clientsLoading || clients.length === 0}
                 >
@@ -421,7 +421,7 @@ export default function InvoiceEditorPage() {
                         <>
                           <button
                             type="button"
-                            className="text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-popover-foreground"
+                            className="min-h-11 rounded-md px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:bg-accent hover:text-popover-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             onClick={() => setPendingClientId(null)}
                           >
                             Back to clients
@@ -442,7 +442,7 @@ export default function InvoiceEditorPage() {
                             <button
                               key={address.id}
                               type="button"
-                              className="flex w-full rounded-sm px-2 py-1.5 text-left text-sm leading-snug hover:bg-accent hover:text-accent-foreground"
+                              className="flex min-h-11 w-full rounded-sm px-2 py-2 text-left text-sm leading-snug hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               onClick={() => selectAddress(pendingClient, address.id)}
                             >
                               <span className="line-clamp-3 whitespace-pre-line">{address.address}</span>
@@ -454,7 +454,7 @@ export default function InvoiceEditorPage() {
                           <button
                             key={client.id}
                             type="button"
-                            className="flex w-full flex-col rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                            className="flex min-h-11 w-full flex-col justify-center rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             onClick={() => selectClient(client)}
                           >
                             <span className="font-medium">{client.name}</span>
@@ -482,6 +482,7 @@ export default function InvoiceEditorPage() {
                 type="button"
                 variant="outline"
                 size="sm"
+                className="h-11"
                 onClick={() => saveClientMutation.mutate()}
                 disabled={!billTo?.name?.trim() || saveClientMutation.isPending}
               >
@@ -502,7 +503,7 @@ export default function InvoiceEditorPage() {
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Line Items</h2>
-            <Button type="button" variant="outline" size="sm" onClick={() => append(defaultLineItem())}>
+            <Button type="button" variant="outline" size="sm" className="h-11" onClick={() => append(defaultLineItem())}>
               <Plus className="h-3.5 w-3.5 mr-1" />
               Add Item
             </Button>
@@ -513,11 +514,11 @@ export default function InvoiceEditorPage() {
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            <div className="overflow-x-auto">
+            <div className="invoice-line-items overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-muted-foreground text-xs">
-                    <th className="w-6 pb-2" />
+                    <th className="w-12 pb-2" />
                     <th className="text-left pb-2 w-[38%]">Description</th>
                     <th className="text-right pb-2 w-[10%]">Qty</th>
                     <th className="text-left pb-2 w-[10%] pl-2">Unit</th>
@@ -536,31 +537,31 @@ export default function InvoiceEditorPage() {
                       const sub = +li.quantity * +li.unit_price
                       return (
                         <SortableRow key={field.id} id={field.id}>
-                          <td className="py-1.5 pr-2">
-                            <Input {...register(`line_items.${i}.description`)} placeholder="Description" className="h-8" />
+                          <td data-label="Description" className="py-1.5 pr-2">
+                            <Input {...register(`line_items.${i}.description`)} placeholder="Description" className="h-12" />
                           </td>
-                          <td className="py-1.5 pr-2">
+                          <td data-label="Quantity" className="py-1.5 pr-2">
                             <Input
                               {...register(`line_items.${i}.quantity`, { valueAsNumber: true })}
                               type="number" min={0} step="any"
-                              className="h-8 text-right"
+                              className="h-12 text-right"
                             />
                           </td>
-                          <td className="py-1.5 pr-2 pl-2">
-                            <Input {...register(`line_items.${i}.unit`)} className="h-8" />
+                          <td data-label="Unit" className="py-1.5 pr-2 pl-2">
+                            <Input {...register(`line_items.${i}.unit`)} className="h-12" />
                           </td>
-                          <td className="py-1.5 pr-2">
+                          <td data-label="Unit price" className="py-1.5 pr-2">
                             <Input
                               {...register(`line_items.${i}.unit_price`, { valueAsNumber: true })}
                               type="number" min={0} step="any"
-                              className="h-8 text-right"
+                              className="h-12 text-right"
                             />
                           </td>
-                          <td className="py-1.5 pr-2 text-right font-mono text-xs pt-3">{fmt(sub)}</td>
-                          <td className="py-1.5 text-center">
+                          <td data-label="Subtotal" className="py-1.5 pr-2 text-right font-mono text-xs pt-3">{fmt(sub)}</td>
+                          <td data-label="Actions" className="py-1.5 text-center">
                             <Button
                               type="button" variant="ghost" size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                              className="h-11 w-11 text-muted-foreground hover:text-destructive"
                               onClick={() => remove(i)}
                               disabled={fields.length === 1}
                             >

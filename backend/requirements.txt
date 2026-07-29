@@ -37,3 +37,6 @@ sentry-sdk==2.66.1
 
 # Auth
 PyJWT[crypto]==2.13.0
+
+# Billing
+stripe==15.3.1

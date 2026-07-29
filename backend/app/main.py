@@ -120,9 +120,10 @@ async def health_ready():
 
 
 # Routers
-from app.api import auth, catalog, clients, invoices, settings, voice  # noqa: E402
+from app.api import auth, billing, catalog, clients, invoices, settings, voice  # noqa: E402
 
 app.include_router(auth.router)
+app.include_router(billing.router)
 app.include_router(invoices.router)
 app.include_router(clients.router)
 app.include_router(catalog.router)

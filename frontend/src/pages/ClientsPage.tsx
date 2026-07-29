@@ -135,10 +135,10 @@ export default function ClientsPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Clients</h1>
-        <Button onClick={openCreateClient}><Plus className="mr-1.5 h-4 w-4" />Add Client</Button>
+    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div><h1 className="text-3xl font-black tracking-tight">Clients</h1><p className="mt-1 text-sm text-muted-foreground">Keep names, contact details, and billing addresses together.</p></div>
+        <Button className="min-h-12 w-full sm:w-auto" onClick={openCreateClient}><Plus className="mr-1.5 h-4 w-4" />Add client</Button>
       </div>
 
       {clients.length === 0 ? (
@@ -154,7 +154,7 @@ export default function ClientsPage() {
             const AddressChevron = addressesExpanded ? ChevronDown : ChevronRight
 
             return (
-              <div key={c.id} className="border rounded-lg p-4 space-y-3">
+              <div key={c.id} className="space-y-4 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
               {/* Client header row */}
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -165,12 +165,12 @@ export default function ClientsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditClient(c)}>
+                  <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => openEditClient(c)}>
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                   <Button
                     variant="ghost" size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    className="h-11 w-11 text-muted-foreground hover:text-destructive"
                     onClick={() => { if (confirm(`Delete ${c.name}?`)) deleteClientMutation.mutate(c.id) }}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -186,7 +186,7 @@ export default function ClientsPage() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-7 -ml-2 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      className="-ml-2 min-h-11 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                       aria-expanded={addressesExpanded}
                       onClick={() => toggleAddresses(c.id)}
                     >
@@ -201,7 +201,7 @@ export default function ClientsPage() {
                       Addresses
                     </span>
                   )}
-                  <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => openAddAddr(c)}>
+                  <Button variant="outline" size="sm" className="min-h-11 px-3 text-xs" onClick={() => openAddAddr(c)}>
                     <Plus className="h-3 w-3 mr-1" />Add
                   </Button>
                 </div>
@@ -235,12 +235,12 @@ export default function ClientsPage() {
                           </TableCell>
                           <TableCell className="py-1.5 text-sm whitespace-pre-line">{a.address}</TableCell>
                           <TableCell className="py-1.5 text-right">
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditAddr(c, a)}>
+                            <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => openEditAddr(c, a)}>
                               <Pencil className="h-3 w-3" />
                             </Button>
                             <Button
                               variant="ghost" size="icon"
-                              className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                              className="h-11 w-11 text-muted-foreground hover:text-destructive"
                               onClick={() => {
                                 if (confirm("Delete this address?"))
                                   deleteAddrMutation.mutate({ clientId: c.id, addressId: a.id })

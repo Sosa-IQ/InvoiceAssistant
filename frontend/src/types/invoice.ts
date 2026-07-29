@@ -148,6 +148,8 @@ export interface BusinessSettings {
   payment_notes: string | null
   default_email_subject: string
   default_email_message: string
+  onboarding_completed: boolean
+  onboarding_completed_at: string | null
   updated_at: string | null
 }
 

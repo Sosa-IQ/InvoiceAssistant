@@ -127,10 +127,10 @@ export default function CatalogPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Catalog</h1>
-        <div className="flex items-center gap-2">
+    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div><h1 className="text-3xl font-black tracking-tight">Catalog</h1><p className="mt-1 text-sm text-muted-foreground">Save services and prices you use often.</p></div>
+        <div className="grid grid-cols-2 gap-2 sm:flex">
           <Button
             variant="outline"
             onClick={() => recommendMutation.mutate()}
@@ -153,6 +153,17 @@ export default function CatalogPage() {
           No catalog items yet.
         </div>
       ) : (
+        <div className="rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
+        <div className="space-y-3 md:hidden">
+          {items.map((item) => (
+            <article key={item.id} className="rounded-2xl border bg-background/40 p-4">
+              <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-black">{item.description}</p><p className="mt-1 text-sm text-muted-foreground">Per {item.unit}</p></div><p className="shrink-0 text-lg font-black">{fmt(item.unit_price)}</p></div>
+              {item.notes && <p className="mt-3 text-sm leading-6 text-muted-foreground">{item.notes}</p>}
+              <div className="mt-3 flex gap-2"><Button variant="outline" onClick={() => openEdit(item)}><Pencil /> Edit</Button><Button variant="ghost" className="text-destructive" onClick={() => { if (confirm(`Delete "${item.description}"?`)) deleteMutation.mutate(item.id) }}><Trash2 /> Delete</Button></div>
+            </article>
+          ))}
+        </div>
+        <div className="hidden md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -171,10 +182,10 @@ export default function CatalogPage() {
                 <TableCell className="text-right font-mono">{fmt(item.unit_price)}</TableCell>
                 <TableCell className="max-w-[180px] truncate text-xs text-muted-foreground">{item.notes ?? "—"}</TableCell>
                 <TableCell className="text-right space-x-1">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(item)}><Pencil className="h-3.5 w-3.5" /></Button>
+                  <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => openEdit(item)}><Pencil className="h-3.5 w-3.5" /></Button>
                   <Button
                     variant="ghost" size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    className="h-11 w-11 text-muted-foreground hover:text-destructive"
                     onClick={() => { if (confirm(`Delete "${item.description}"?`)) deleteMutation.mutate(item.id) }}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -184,6 +195,8 @@ export default function CatalogPage() {
             ))}
           </TableBody>
         </Table>
+        </div>
+        </div>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>

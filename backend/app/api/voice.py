@@ -6,7 +6,8 @@ import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app.auth import AuthenticatedUser, get_current_user
+from app.api.billing import require_pro_entitlement
+from app.auth import AuthenticatedUser
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ async def _transcribe(audio_bytes: bytes, filename: str, content_type: str) -> s
 @router.post("/transcribe", response_model=TranscriptResponse)
 async def transcribe_audio(
     audio: UploadFile = File(...),
-    current_user: AuthenticatedUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(require_pro_entitlement),
 ) -> TranscriptResponse:
     """
     Accept an audio recording and return a transcript via Speechmatics.

@@ -13,6 +13,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.billing import require_pro_entitlement
 from app.auth import AuthenticatedUser, get_current_user
 from app.config import settings
 from app.database import get_db
@@ -319,7 +320,7 @@ async def download_invoice_pdf(
 async def generate_invoice(
     request: Request,
     body: GenerateInvoiceRequest,
-    current_user: AuthenticatedUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(require_pro_entitlement),
     db: AsyncSession = Depends(get_db),
 ) -> GenerateInvoiceResponse:
     """
@@ -772,7 +773,7 @@ async def send_invoice(
     record_id: int,
     request: Request,
     body: SendInvoiceRequest,
-    current_user: AuthenticatedUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(require_pro_entitlement),
     db: AsyncSession = Depends(get_db),
 ) -> SendInvoiceResponse:
     record = await _get_owned_invoice_record(db, current_user.id, record_id)

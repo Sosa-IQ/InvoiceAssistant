@@ -1,7 +1,8 @@
 import { useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
-import { AlertCircle, Loader2, RotateCw, Save } from "lucide-react"
+import { AlertCircle, ArrowRight, CreditCard, Loader2, RotateCw, Save } from "lucide-react"
+import { Link } from "react-router-dom"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { getSettings, updateSettings } from "@/api/settings"
 import type { BusinessSettings } from "@/types/invoice"
 
-type SettingsFormData = Omit<BusinessSettings, "id" | "user_id" | "updated_at">
+type SettingsFormData = Omit<BusinessSettings, "id" | "user_id" | "updated_at" | "onboarding_completed" | "onboarding_completed_at">
 
 const EMAIL_TEMPLATE_PLACEHOLDERS = [
   "{invoice_number}",
@@ -66,9 +67,9 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Settings</h1>
+    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div><h1 className="text-3xl font-black tracking-tight">Settings</h1><p className="mt-1 text-sm text-muted-foreground">Your business details and invoice email defaults.</p></div>
         <Button onClick={handleSubmit((d) => saveMutation.mutate(d))} disabled={saveMutation.isPending}>
           {saveMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Save className="mr-1.5 h-4 w-4" />}
           Save
@@ -77,18 +78,18 @@ export default function SettingsPage() {
 
       <form className="space-y-6" onSubmit={handleSubmit((d) => saveMutation.mutate(d))}>
 
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Business Profile</h2>
+        <section className="space-y-4 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
+          <h2 className="text-sm font-black uppercase tracking-[0.12em] text-muted-foreground">Business profile</h2>
           <div className="space-y-1.5"><Label>Business Name</Label><Input {...register("name")} /></div>
           <div className="space-y-1.5"><Label>Address</Label><Textarea {...register("address")} rows={2} className="resize-none" /></div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5"><Label>Email</Label><Input {...register("email")} type="email" /></div>
             <div className="space-y-1.5"><Label>Phone</Label><Input {...register("phone")} /></div>
           </div>
         </section>
 
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Email Templates</h2>
+        <section className="space-y-4 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
+          <h2 className="text-sm font-black uppercase tracking-[0.12em] text-muted-foreground">Email templates</h2>
           <p className="text-sm text-muted-foreground">
             Used to compose new invoice emails. Allowed placeholders:{" "}
             {EMAIL_TEMPLATE_PLACEHOLDERS.map((placeholder, index) => (
@@ -105,6 +106,17 @@ export default function SettingsPage() {
           <div className="space-y-1.5">
             <Label htmlFor="default-email-message">Default Email Message</Label>
             <Textarea id="default-email-message" {...register("default_email_message")} rows={6} className="resize-y" />
+          </div>
+        </section>
+
+        <section className="rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
+          <div className="flex items-start gap-4">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-secondary"><CreditCard className="h-5 w-5" /></span>
+            <div className="min-w-0 flex-1">
+              <h2 className="font-black">Plan and billing</h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">See your plan, upgrade, or open Stripe billing.</p>
+              <Button asChild variant="outline" className="mt-4"><Link to="/billing">Open billing <ArrowRight /></Link></Button>
+            </div>
           </div>
         </section>
 

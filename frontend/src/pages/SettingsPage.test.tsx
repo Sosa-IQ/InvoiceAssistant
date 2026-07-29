@@ -36,6 +36,8 @@ function makeSettings(overrides: Partial<BusinessSettings> = {}): BusinessSettin
     payment_notes: null,
     default_email_subject: "Invoice {invoice_number}",
     default_email_message: "Hello {client_name},\n\nPlease find invoice {invoice_number} attached.\n\nBest,\n{business_name}",
+    onboarding_completed: true,
+    onboarding_completed_at: "2026-07-26T18:00:00Z",
     updated_at: null,
     ...overrides,
   }

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -54,7 +54,12 @@ async def update_settings(
 ) -> BusinessSettingsRead:
     """Partial-update the business profile."""
     row = await _get_or_create_for_user(db, current_user.id)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    if "onboarding_completed" in changes:
+        # Stamp/clear the completion time server-side; clients cannot supply one.
+        completed = changes.pop("onboarding_completed")
+        row.onboarding_completed_at = datetime.now(timezone.utc) if completed else None
+    for field, value in changes.items():
         setattr(row, field, value)
     row.updated_at = datetime.utcnow()
     await db.commit()
