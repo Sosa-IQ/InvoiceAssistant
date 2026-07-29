@@ -47,7 +47,7 @@ async def test_asymmetric_supabase_token_uses_remote_validation(
 
 @pytest.mark.asyncio
 async def test_hs256_token_is_verified_locally(monkeypatch) -> None:
-    secret = "legacy-hs256-secret-at-least-32-bytes"
+    secret = "legacy-hs256-secret-at-least-32-bytes"  # gitleaks:allow
     monkeypatch.setattr(auth.settings, "supabase_jwt_secret", secret)
     token = auth.jwt.encode(
         {"sub": "user-123", "email": "owner@example.com", "aud": "authenticated"},

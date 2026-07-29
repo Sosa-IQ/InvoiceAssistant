@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NORTHLINE — Precision Desk (Branching Concept)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161a21;
+    --panel-2: #1b212a;
+    --line: #262d38;
+    --line-soft: #1f2530;
+    --text: #e6ebf2;
+    --text-2: #9aa5b4;
+    --text-3: #6b7686;
+    --silver: #c3ccd8;
+    --cyan: #35c9f0;
+    --cyan-2: #2b8fff;
+    --cyan-ink: #0a3d52;
+    --green: #37d39a;
+    --amber: #f2b64c;
+    --red: #ff6a6a;
+    --mono: "IBM Plex Mono", "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 13px; line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .concept-banner {
+    display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+    background: #05070a; color: var(--text-2); border-bottom: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    padding: 7px 16px;
+  }
+  .concept-banner strong { color: var(--cyan); }
+  .concept-banner span.note { color: var(--text-3); letter-spacing: .04em; text-transform: none; }
+
+  /* ---------- Brand kit rail (top) ---------- */
+  .kit {
+    display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 1px;
+    background: var(--line-soft); border-bottom: 1px solid var(--line);
+  }
+  .kit > div { background: var(--bg); padding: 16px 22px; }
+  .kit-label {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--text-3); margin: 0 0 12px;
+  }
+  .lockup { display: flex; align-items: center; gap: 13px; }
+  .mark {
+    width: 40px; height: 40px; border-radius: 9px; flex: none;
+    background: linear-gradient(160deg, #1b212a, #10141a);
+    border: 1px solid var(--line); display: grid; place-items: center;
+  }
+  .wordmark { font-weight: 700; font-size: 21px; letter-spacing: .06em; }
+  .wordmark span { color: var(--cyan); }
+  .lockup .tag { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); margin-top: 3px; letter-spacing: .02em; }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    display: flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 10px;
+    color: var(--text-2); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 5px; padding: 4px 8px 4px 5px;
+  }
+  .sw { width: 13px; height: 13px; border-radius: 3px; }
+
+  .type-row { display: flex; flex-direction: column; gap: 4px; }
+  .type-a { font-weight: 700; font-size: 20px; letter-spacing: -.01em; }
+  .type-b { font-family: var(--mono); font-size: 11px; color: var(--text-2); letter-spacing: .04em; }
+  .type-c { font-family: var(--mono); font-size: 10px; color: var(--text-3); letter-spacing: .1em; }
+
+  /* ---------- App shell ---------- */
+  .shell {
+    display: grid; grid-template-columns: 62px 232px 1fr; height: calc(100vh - 40px);
+    min-height: 720px;
+  }
+
+  /* Icon rail */
+  .rail {
+    background: #0b0e13; border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: center; padding: 14px 0; gap: 6px;
+  }
+  .rail .logo { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--panel-2); border: 1px solid var(--line); margin-bottom: 10px; }
+  .rail-btn {
+    width: 38px; height: 38px; border-radius: 9px; border: 1px solid transparent; background: transparent;
+    color: var(--text-3); display: grid; place-items: center; cursor: pointer; transition: all .13s ease;
+  }
+  .rail-btn:hover { color: var(--silver); background: var(--panel); }
+  .rail-btn.active { color: var(--cyan); background: var(--panel-2); border-color: var(--line); }
+  .rail .spacer { flex: 1; }
+
+  /* Contextual nav */
+  .nav {
+    background: var(--panel); border-right: 1px solid var(--line);
+    padding: 16px 12px; overflow: auto;
+  }
+  .nav h2 { font-size: 14px; font-weight: 600; margin: 4px 8px 4px; letter-spacing: .01em; }
+  .nav .sub { font-family: var(--mono); font-size: 10px; color: var(--text-3); margin: 0 8px 16px; letter-spacing: .06em; }
+  .nav-sec { font-family: var(--mono); font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--text-3); margin: 16px 8px 6px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 7px;
+    color: var(--text-2); font-size: 12.5px; cursor: pointer; text-decoration: none;
+    border: 1px solid transparent; transition: all .12s ease;
+  }
+  .nav-item:hover { background: var(--panel-2); color: var(--text); }
+  .nav-item.active { background: var(--panel-2); color: var(--text); border-color: var(--line); }
+  .nav-item .lead { color: var(--cyan); }
+  .nav-item .count { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--text-3); background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+  .nav-item.active .count { color: var(--cyan); }
+
+  /* Work area */
+  .work { overflow: auto; display: flex; flex-direction: column; min-width: 0; }
+
+  .topbar {
+    display: flex; align-items: center; gap: 14px; padding: 12px 22px;
+    border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 5;
+  }
+  .crumbs { font-family: var(--mono); font-size: 11px; color: var(--text-3); letter-spacing: .04em; }
+  .crumbs b { color: var(--text); font-weight: 600; }
+  .search {
+    margin-left: auto; display: flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 7px 11px;
+    color: var(--text-3); font-family: var(--mono); font-size: 11px; min-width: 180px;
+  }
+  .kbd { font-family: var(--mono); font-size: 9.5px; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: var(--text-3); }
+
+  .btn {
+    font-family: var(--sans); font-size: 12.5px; font-weight: 600; border-radius: 7px;
+    padding: 8px 13px; cursor: pointer; border: 1px solid var(--line); background: var(--panel);
+    color: var(--text); display: inline-flex; align-items: center; gap: 7px; transition: all .13s ease;
+  }
+  .btn:hover { border-color: #33414f; background: var(--panel-2); }
+  .btn-primary {
+    background: linear-gradient(180deg, var(--cyan), var(--cyan-2)); border-color: var(--cyan-2); color: #04121a;
+    box-shadow: 0 0 0 1px rgba(53,201,240,.2), 0 8px 20px -12px rgba(53,201,240,.8);
+  }
+  .btn-primary:hover { filter: brightness(1.06); }
+  .btn:focus-visible, .rail-btn:focus-visible, .nav-item:focus-visible, .filter:focus-visible,
+  .field:focus-visible, .icon-btn:focus-visible, .rowbtn:focus-visible, tr.inv-row:focus-visible {
+    outline: 2px solid var(--cyan); outline-offset: 2px;
+  }
+  .field:focus-visible { border-color: var(--cyan); }
+
+  .work-head {
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+    padding: 20px 22px 6px; flex-wrap: wrap;
+  }
+  .work-head h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+  .work-head .desc { color: var(--text-2); font-size: 12.5px; margin-top: 4px; }
+  .head-actions { display: flex; gap: 8px; }
+
+  /* KPI strip — dense */
+  .kpis {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; background: var(--line-soft);
+    border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin: 16px 22px 0;
+  }
+  .kpi { background: var(--panel); padding: 13px 15px; }
+  .kpi .k { font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); }
+  .kpi .v { font-family: var(--mono); font-size: 21px; font-weight: 600; margin: 7px 0 3px; letter-spacing: -.01em; }
+  .kpi .d { font-family: var(--mono); font-size: 10.5px; display: flex; align-items: center; gap: 5px; }
+  .d.up { color: var(--green); } .d.down { color: var(--red); } .d.warn { color: var(--amber); } .d.flat { color: var(--text-3); }
+
+  /* Sparkline row (compact, real values labeled) */
+  .kpi .spark { display: block; margin-top: 6px; }
+
+  /* Layout: table + activity split */
+  .split { display: grid; grid-template-columns: 1fr 288px; gap: 16px; padding: 16px 22px 24px; align-items: start; }
+
+  .tablewrap { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .table-toolbar {
+    display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap;
+  }
+  .table-toolbar .title { font-weight: 600; font-size: 13px; }
+  .filters { display: flex; gap: 4px; margin-left: 4px; }
+  .filter {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; padding: 5px 10px; border-radius: 6px; cursor: pointer;
+    background: transparent; border: 1px solid var(--line); color: var(--text-3); transition: all .12s ease;
+  }
+  .filter:hover { color: var(--text); }
+  .filter.active { background: var(--cyan-ink); border-color: #1c6f8f; color: var(--cyan); }
+  .table-toolbar .right { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--text-3); font-weight: 500; padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--panel-2);
+  }
+  th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid var(--line-soft); font-size: 12.5px; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr.inv-row { cursor: pointer; transition: background .1s ease; }
+  tbody tr.inv-row:hover { background: var(--panel-2); }
+  .mono { font-family: var(--mono); }
+  .id { font-family: var(--mono); font-size: 11.5px; color: var(--silver); }
+  .client-cell { font-weight: 500; }
+  .amt { font-family: var(--mono); font-weight: 600; }
+
+  .pill {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .04em; padding: 2px 8px; border-radius: 5px;
+    display: inline-flex; align-items: center; gap: 5px; border: 1px solid;
+  }
+  .pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; }
+  .pill.sent { color: var(--cyan); border-color: #1c5c73; background: rgba(53,201,240,.08); }
+  .pill.sent::before { background: var(--cyan); }
+  .pill.due { color: var(--amber); border-color: #6b5220; background: rgba(242,182,76,.08); }
+  .pill.due::before { background: var(--amber); }
+  .pill.overdue { color: var(--red); border-color: #6e2f2f; background: rgba(255,106,106,.08); }
+  .pill.overdue::before { background: var(--red); }
+  .pill.paid { color: var(--green); border-color: #1f5c47; background: rgba(55,211,154,.08); }
+  .pill.paid::before { background: var(--green); }
+
+  .rowbtn {
+    background: var(--bg); border: 1px solid var(--line); color: var(--text-2); border-radius: 6px;
+    font-family: var(--mono); font-size: 10.5px; padding: 4px 9px; cursor: pointer;
+  }
+  .rowbtn:hover { border-color: var(--cyan-2); color: var(--cyan); }
+
+  /* Activity feed */
+  .aside-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .aside-head { padding: 12px 14px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: space-between; }
+  .aside-head .live { font-family: var(--mono); font-size: 9.5px; color: var(--green); display: flex; align-items: center; gap: 5px; }
+  .aside-head .live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  .feed { padding: 6px 0; }
+  .event { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 9px 14px; align-items: start; }
+  .event .ic { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; margin-top: 1px; }
+  .event .txt { font-size: 12px; color: var(--text); }
+  .event .txt b { font-weight: 600; }
+  .event .meta { font-family: var(--mono); font-size: 9.5px; color: var(--text-3); margin-top: 2px; letter-spacing: .04em; }
+
+  .icon-btn { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; width: 32px; height: 32px; display: grid; place-items: center; cursor: pointer; color: var(--text-2); }
+  .icon-btn:hover { border-color: #33414f; color: var(--text); }
+
+  /* ---------- Composer drawer (right slide) ---------- */
+  .overlay { position: fixed; inset: 0; background: rgba(3,5,8,.6); display: none; z-index: 40; }
+  .overlay.open { display: block; }
+  .drawer {
+    position: fixed; top: 0; right: 0; height: 100vh; width: min(560px, 100%);
+    background: var(--panel); border-left: 1px solid var(--line); z-index: 45;
+    transform: translateX(100%); display: flex; flex-direction: column;
+    box-shadow: -30px 0 60px -30px rgba(0,0,0,.8);
+  }
+  .overlay.open .drawer { transform: translateX(0); }
+  @media (prefers-reduced-motion: no-preference) { .drawer { transition: transform .24s cubic-bezier(.22,.61,.36,1); } }
+
+  .drawer-head { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: flex-start; justify-content: space-between; }
+  .drawer-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
+  .drawer-head .sub { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); margin-top: 3px; letter-spacing: .04em; }
+  .drawer-body { padding: 18px 20px; overflow: auto; flex: 1; }
+
+  .fld { display: flex; flex-direction: column; gap: 6px; margin-bottom: 15px; }
+  .fld label { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
+  .field {
+    font-family: var(--sans); font-size: 13px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px;
+  }
+  textarea.field { min-height: 120px; resize: vertical; line-height: 1.55; font-family: var(--sans); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .linecard { background: var(--bg); border: 1px solid var(--line); border-radius: 9px; overflow: hidden; margin-top: 4px; }
+  .linecard .lhead { display: flex; justify-content: space-between; padding: 11px 14px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
+  .lrow { display: flex; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); font-size: 12.5px; }
+  .lrow .mono { color: var(--silver); }
+  .ltot { display: flex; justify-content: space-between; padding: 12px 14px; font-family: var(--mono); font-weight: 600; font-size: 15px; }
+  .ltot .cyan { color: var(--cyan); }
+
+  .drawer-foot { padding: 14px 20px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .drawer-foot .meta { font-family: var(--mono); font-size: 10px; color: var(--text-3); }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; background: var(--panel-2);
+    border: 1px solid var(--line); border-left: 3px solid var(--cyan);
+    color: var(--text); padding: 12px 16px; border-radius: 9px; z-index: 60;
+    display: flex; align-items: center; gap: 11px; font-size: 12.5px;
+    opacity: 0; transform: translateY(12px); pointer-events: none;
+    box-shadow: 0 20px 50px -20px rgba(0,0,0,.9); min-width: 240px;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  @media (prefers-reduced-motion: no-preference) { .toast { transition: opacity .2s ease, transform .2s ease; } }
+  .toast .ic { width: 22px; height: 22px; border-radius: 6px; background: var(--cyan-ink); display: grid; place-items: center; flex: none; }
+  .toast .mono { font-family: var(--mono); font-size: 10px; color: var(--text-3); display: block; margin-top: 2px; }
+
+  .vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 1200px) { .split { grid-template-columns: 1fr; } .kpis { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 62px 1fr; height: auto; }
+    .nav { display: none; }
+    .kit { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 700px) {
+    .shell { grid-template-columns: 1fr; }
+    .rail { flex-direction: row; width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--line); justify-content: flex-start; overflow-x: auto; }
+    .rail .logo { margin-bottom: 0; }
+    .rail .spacer { display: none; }
+    .kpis { grid-template-columns: 1fr 1fr; }
+    .col-hide { display: none; }
+    .grid2 { grid-template-columns: 1fr; }
+    .drawer { width: 100%; }
+    .search { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="concept-banner">
+    <strong>Branching Concept</strong>
+    <span>//</span>
+    <span class="note">Placeholder name “NORTHLINE” — not an approved brand, exploration only</span>
+  </div>
+
+  <!-- Brand kit -->
+  <section class="kit">
+    <div>
+      <p class="kit-label">Brand mark &amp; wordmark</p>
+      <div class="lockup">
+        <div class="mark" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M5 18V6l14 12V6" stroke="#35c9f0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="5" cy="6" r="1.6" fill="#c3ccd8"/>
+            <circle cx="19" cy="18" r="1.6" fill="#c3ccd8"/>
+          </svg>
+        </div>
+        <div>
+          <div class="wordmark">NORTH<span>LINE</span></div>
+          <div class="tag">accounts receivable, on rails</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <p class="kit-label">Palette</p>
+      <div class="chips">
+        <span class="chip"><span class="sw" style="background:#0e1116"></span>Graphite</span>
+        <span class="chip"><span class="sw" style="background:#1b212a"></span>Panel</span>
+        <span class="chip"><span class="sw" style="background:#c3ccd8"></span>Silver</span>
+        <span class="chip"><span class="sw" style="background:#35c9f0"></span>Cyan</span>
+        <span class="chip"><span class="sw" style="background:#2b8fff"></span>Blue</span>
+        <span class="chip"><span class="sw" style="background:#37d39a"></span>Signal</span>
+      </div>
+    </div>
+    <div>
+      <p class="kit-label">Typography</p>
+      <div class="type-row">
+        <span class="type-a">Every invoice, accounted.</span>
+        <span class="type-b">Inter — interface &amp; numerals · tabular</span>
+        <span class="type-c">IBM PLEX MONO · LABELS + IDS + METRICS</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- App shell -->
+  <div class="shell">
+    <!-- Icon rail -->
+    <nav class="rail" aria-label="Sections">
+      <div class="logo" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 18V6l14 12V6" stroke="#35c9f0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <button class="rail-btn active" aria-label="Receivables" aria-current="page">
+        <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><rect x="3" y="4" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 8h14" stroke="currentColor" stroke-width="1.6"/></svg>
+      </button>
+      <button class="rail-btn" aria-label="Invoices">
+        <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><path d="M5 3h10v14l-2.5-1.5L10 17l-2.5-1.5L5 17V3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 7h4M8 10h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+      <button class="rail-btn" aria-label="Clients">
+        <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M4 16c1-3 3-4.5 6-4.5s5 1.5 6 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+      <button class="rail-btn" aria-label="Automations">
+        <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.5 1.5M13.5 13.5 15 15M15 5l-1.5 1.5M6.5 13.5 5 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+      <div class="spacer"></div>
+      <button class="rail-btn" aria-label="Settings">
+        <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.6 4.6l1.4 1.4M14 14l1.4 1.4M15.4 4.6 14 6M6 14l-1.4 1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+    </nav>
+
+    <!-- Contextual nav -->
+    <aside class="nav" aria-label="Receivables navigation">
+      <h2>Receivables</h2>
+      <p class="sub">workspace / operations</p>
+
+      <p class="nav-sec">Queues</p>
+      <a class="nav-item active" aria-current="page"><span class="lead">›</span> Needs action <span class="count">4</span></a>
+      <a class="nav-item"><span class="lead">›</span> Awaiting payment <span class="count">7</span></a>
+      <a class="nav-item"><span class="lead">›</span> Overdue <span class="count">2</span></a>
+      <a class="nav-item"><span class="lead">›</span> Scheduled <span class="count">3</span></a>
+
+      <p class="nav-sec">Views</p>
+      <a class="nav-item">All invoices <span class="count">128</span></a>
+      <a class="nav-item">Drafts <span class="count">5</span></a>
+      <a class="nav-item">Paid <span class="count">96</span></a>
+
+      <p class="nav-sec">Saved filters</p>
+      <a class="nav-item">Net-30 · &gt; $2k</a>
+      <a class="nav-item">Retainers</a>
+    </aside>
+
+    <!-- Work area -->
+    <div class="work">
+      <div class="topbar">
+        <div class="crumbs">receivables / <b>needs action</b></div>
+        <div class="search">
+          <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M13 13l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          Search invoices, clients…
+          <span class="kbd" style="margin-left:auto">/</span>
+        </div>
+      </div>
+
+      <div class="work-head">
+        <div>
+          <h1>Needs action</h1>
+          <div class="desc">4 invoices require follow-up · <span class="mono" style="color:var(--amber)">$7,090</span> at risk</div>
+        </div>
+        <div class="head-actions">
+          <button class="btn" type="button" id="chaseBtn">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M3 10l14-6-6 14-2-6-6-2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            Auto-chase overdue
+          </button>
+          <button class="btn btn-primary" type="button" id="openComposer">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            Create invoice
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI strip -->
+      <section class="kpis" aria-label="Receivables metrics">
+        <div class="kpi">
+          <div class="k">Outstanding</div>
+          <div class="v">$9,240</div>
+          <div class="d warn">4 open</div>
+        </div>
+        <div class="kpi">
+          <div class="k">Due ≤ 7 days</div>
+          <div class="v">$2,840</div>
+          <div class="d flat">INV-1048</div>
+        </div>
+        <div class="kpi">
+          <div class="k">Overdue</div>
+          <div class="v">$2,030</div>
+          <div class="d down">2 invoices</div>
+        </div>
+        <div class="kpi">
+          <div class="k">Paid · 30d</div>
+          <div class="v">$18,410</div>
+          <div class="d up">▲ 12%</div>
+        </div>
+        <div class="kpi">
+          <div class="k">DSO</div>
+          <div class="v">11.4d</div>
+          <svg class="spark" width="90" height="20" viewBox="0 0 90 20" fill="none" aria-hidden="true">
+            <polyline points="0,15 15,12 30,14 45,9 60,10 75,6 90,7" stroke="#35c9f0" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+      </section>
+
+      <!-- Split -->
+      <div class="split">
+        <section class="tablewrap" aria-label="Invoice queue">
+          <div class="table-toolbar">
+            <span class="title">Invoice queue</span>
+            <div class="filters" role="group" aria-label="Filter by status">
+              <button class="filter active" data-filter="all" type="button">ALL</button>
+              <button class="filter" data-filter="sent" type="button">SENT</button>
+              <button class="filter" data-filter="due" type="button">DUE</button>
+              <button class="filter" data-filter="overdue" type="button">OVERDUE</button>
+              <button class="filter" data-filter="paid" type="button">PAID</button>
+            </div>
+            <span class="right" id="rowCount">6 rows</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Invoice</th>
+                <th scope="col">Client</th>
+                <th scope="col" class="col-hide">Issued</th>
+                <th scope="col">Due</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="num">Amount</th>
+                <th scope="col" class="num"><span class="vh">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="rows">
+              <tr class="inv-row" data-status="due" tabindex="0">
+                <td class="id">INV-1048</td>
+                <td class="client-cell">Acme Studio</td>
+                <td class="col-hide mono">Jul 16</td>
+                <td class="mono">Aug 15</td>
+                <td><span class="pill due">due · 3d</span></td>
+                <td class="num amt">$2,840</td>
+                <td class="num"><button class="rowbtn" type="button" data-open>OPEN</button></td>
+              </tr>
+              <tr class="inv-row" data-status="overdue" tabindex="0">
+                <td class="id">INV-1041</td>
+                <td class="client-cell">Blue Harbor Co.</td>
+                <td class="col-hide mono">Jun 28</td>
+                <td class="mono">Jul 12</td>
+                <td><span class="pill overdue">overdue · 14d</span></td>
+                <td class="num amt">$2,030</td>
+                <td class="num"><button class="rowbtn" type="button" data-open>OPEN</button></td>
+              </tr>
+              <tr class="inv-row" data-status="due" tabindex="0">
+                <td class="id">INV-1046</td>
+                <td class="client-cell">Novak &amp; Lane</td>
+                <td class="col-hide mono">Jul 09</td>
+                <td class="mono">Jul 30</td>
+                <td><span class="pill due">due · 4d</span></td>
+                <td class="num amt">$2,220</td>
+                <td class="num"><button class="rowbtn" type="button" data-open>OPEN</button></td>
+              </tr>
+              <tr class="inv-row" data-status="sent" tabindex="0">
+                <td class="id">INV-1050</td>
+                <td class="client-cell">Corveo Systems</td>
+                <td class="col-hide mono">Jul 22</td>
+                <td class="mono">Aug 21</td>
+                <td><span class="pill sent">sent</span></td>
+                <td class="num amt">$4,600</td>
+                <td class="num"><button class="rowbtn" type="button" data-open>OPEN</button></td>
+              </tr>
+              <tr class="inv-row" data-status="paid" tabindex="0">
+                <td class="id">INV-1039</td>
+                <td class="client-cell">Fieldwork LLC</td>
+                <td class="col-hide mono">Jun 15</td>
+                <td class="mono">Jun 30</td>
+                <td><span class="pill paid">paid</span></td>
+                <td class="num amt">$3,150</td>
+                <td class="num"><button class="rowbtn" type="button" data-open>OPEN</button></td>
+              </tr>
+              <tr class="inv-row" data-status="paid" tabindex="0">
+                <td class="id">INV-1037</td>
+                <td class="client-cell">Olive Branch</td>
+                <td class="col-hide mono">Jun 10</td>
+                <td class="mono">Jun 24</td>
+                <td><span class="pill paid">paid</span></td>
+                <td class="num amt">$1,480</td>
+                <td class="num"><button class="rowbtn" type="button" data-open>OPEN</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <!-- Activity -->
+        <aside class="aside-panel" aria-label="Live activity">
+          <div class="aside-head">Activity <span class="live">live</span></div>
+          <div class="feed">
+            <div class="event">
+              <span class="ic" style="background:rgba(55,211,154,.12)"><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5l3 3L12 3" stroke="#37d39a" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <div><div class="txt"><b>Fieldwork LLC</b> paid INV-1039</div><div class="meta">$3,150 · 14m ago</div></div>
+            </div>
+            <div class="event">
+              <span class="ic" style="background:rgba(53,201,240,.12)"><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7l10-4-4 10-1.5-4.5L2 7Z" stroke="#35c9f0" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
+              <div><div class="txt">Reminder sent to <b>Blue Harbor Co.</b></div><div class="meta">INV-1041 · 1h ago</div></div>
+            </div>
+            <div class="event">
+              <span class="ic" style="background:rgba(242,182,76,.12)"><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 3v4l3 2" stroke="#f2b64c" stroke-width="1.5" stroke-linecap="round"/><circle cx="7" cy="7" r="5" stroke="#f2b64c" stroke-width="1.3"/></svg></span>
+              <div><div class="txt"><b>INV-1046</b> due in 4 days</div><div class="meta">Novak &amp; Lane · auto-reminder set</div></div>
+            </div>
+            <div class="event">
+              <span class="ic" style="background:rgba(43,143,255,.12)"><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M3 4h8v6H3z" stroke="#2b8fff" stroke-width="1.4"/><path d="M3 4l4 3 4-3" stroke="#2b8fff" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
+              <div><div class="txt">Draft created for <b>Corveo Systems</b></div><div class="meta">INV-1050 · 3h ago</div></div>
+            </div>
+            <div class="event">
+              <span class="ic" style="background:rgba(255,106,106,.12)"><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 2v6M7 11v.5" stroke="#ff6a6a" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+              <div><div class="txt"><b>INV-1041</b> is 14 days overdue</div><div class="meta">Blue Harbor Co. · escalation ready</div></div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- Composer drawer -->
+  <div class="overlay" id="overlay">
+    <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+      <div class="drawer-head">
+        <div>
+          <h3 id="drawerTitle">Send invoice</h3>
+          <div class="sub">INV-1048 · ACME STUDIO · NET-30</div>
+        </div>
+        <button class="icon-btn" type="button" id="closeComposer" aria-label="Close composer">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="drawer-body">
+        <div class="grid2">
+          <div class="fld">
+            <label for="toField">Recipient</label>
+            <input class="field" id="toField" type="email" value="billing@acmestudio.example" />
+          </div>
+          <div class="fld">
+            <label for="dueField">Due date</label>
+            <input class="field mono" id="dueField" type="text" value="2026-08-15" />
+          </div>
+        </div>
+        <div class="fld">
+          <label for="subjField">Subject</label>
+          <input class="field" id="subjField" type="text" value="Invoice INV-1048 — $2,840 due Aug 15" />
+        </div>
+        <div class="fld">
+          <label for="msgField">Message</label>
+          <textarea class="field" id="msgField">Hi Acme Studio,
+
+Invoice INV-1048 for $2,840 is ready. Net-30 terms, due August 15, 2026. Pay via the secure link — a receipt posts back to your Northline timeline automatically.
+
+— Operations, Northline</textarea>
+        </div>
+
+        <div class="linecard" aria-label="Line items">
+          <div class="lhead"><span>Item</span><span>Amount</span></div>
+          <div class="lrow"><span>Design retainer — July</span><span class="mono">$2,400.00</span></div>
+          <div class="lrow"><span>Additional revisions · 4h @ $110</span><span class="mono">$440.00</span></div>
+          <div class="ltot"><span>TOTAL DUE</span><span class="cyan">$2,840.00</span></div>
+        </div>
+      </div>
+      <div class="drawer-foot">
+        <span class="meta">PDF + pay link attached · tracked</span>
+        <div style="display:flex;gap:8px">
+          <button class="btn" type="button" id="cancelComposer">Save draft</button>
+          <button class="btn btn-primary" type="button" id="sendInvoice">Send &amp; track</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <span class="ic"><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5l3 3L12 3" stroke="#35c9f0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    <span><span id="toastText">Invoice INV-1048 sent to Acme Studio</span><span class="mono" id="toastMeta">$2,840 · tracking enabled</span></span>
+  </div>
+
+<script>
+  (function () {
+    var overlay = document.getElementById('overlay');
+    var toast = document.getElementById('toast');
+    var toastText = document.getElementById('toastText');
+    var toastMeta = document.getElementById('toastMeta');
+    var lastFocus = null, toastTimer = null;
+
+    function open() {
+      lastFocus = document.activeElement;
+      overlay.classList.add('open');
+      var f = document.getElementById('toField'); if (f) setTimeout(function(){ f.focus(); }, 60);
+      document.addEventListener('keydown', onKey);
+    }
+    function close() {
+      overlay.classList.remove('open');
+      document.removeEventListener('keydown', onKey);
+      if (lastFocus) lastFocus.focus();
+    }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+
+    function showToast(t, m) {
+      toastText.textContent = t; toastMeta.textContent = m || '';
+      toast.classList.add('show');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { toast.classList.remove('show'); }, 3400);
+    }
+
+    document.getElementById('openComposer').addEventListener('click', open);
+    document.getElementById('closeComposer').addEventListener('click', close);
+    document.getElementById('cancelComposer').addEventListener('click', function () { close(); showToast('Draft saved · INV-1048', 'not sent'); });
+    document.getElementById('sendInvoice').addEventListener('click', function () { close(); showToast('Invoice INV-1048 sent to Acme Studio', '$2,840 · tracking enabled'); });
+    document.getElementById('chaseBtn').addEventListener('click', function () { showToast('Auto-chase queued · 2 overdue', 'reminders + escalation scheduled'); });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-open]'), function (b) {
+      b.addEventListener('click', function (e) { e.stopPropagation(); open(); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('tr.inv-row'), function (r) {
+      r.addEventListener('click', open);
+      r.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    });
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+
+    var rows = document.querySelectorAll('#rows tr');
+    var rowCount = document.getElementById('rowCount');
+    Array.prototype.forEach.call(document.querySelectorAll('.filter'), function (btn) {
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('.filter').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var f = btn.getAttribute('data-filter'), shown = 0;
+        Array.prototype.forEach.call(rows, function (r) {
+          var match = f === 'all' || r.getAttribute('data-status') === f;
+          r.style.display = match ? '' : 'none';
+          if (match) shown++;
+        });
+        rowCount.textContent = shown + (shown === 1 ? ' row' : ' rows');
+      });
+    });
+    if (new URLSearchParams(window.location.search).has('composer')) open();
+  })();
+</script>
+</body>
+</html>

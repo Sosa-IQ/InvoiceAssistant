@@ -351,6 +351,23 @@ async def test_generation_context_only_contains_own_clients_and_catalog(isolated
     assert catalog_ids == [bob.catalog_item_id], OTHER
 
 
+async def test_generation_rate_limit_blocks_before_openai(isolated_api, monkeypatch) -> None:
+    from app.api import invoices as invoices_api
+
+    request, _, bob, harness, _ = isolated_api
+    monkeypatch.setattr(invoices_api.settings, "invoice_generation_limit", 1)
+    monkeypatch.setattr(invoices_api.settings, "invoice_generation_window_seconds", 60)
+    calls_before = len(harness["openai"].generate_calls)
+
+    first = await request(bob, "post", "/api/invoices/generate", json={"prompt": "first"})
+    blocked = await request(bob, "post", "/api/invoices/generate", json={"prompt": "second"})
+
+    assert first.status_code == 200, first.text
+    assert blocked.status_code == 429, blocked.text
+    assert blocked.headers["retry-after"] == "60"
+    assert len(harness["openai"].generate_calls) == calls_before + 1
+
+
 async def test_embedding_rows_are_stored_with_their_owner(isolated_api) -> None:
     request, alice, bob, _, url = isolated_api
 
@@ -582,6 +599,7 @@ async def test_authenticated_role_and_jwt_claims_enforce_rls(isolated_api) -> No
         "invoice_records",
         "invoice_embeddings",
         "invoice_emails",
+        "security_events",
     )
 
     conn = await asyncpg.connect(asyncpg_dsn(url))
@@ -605,15 +623,31 @@ async def test_authenticated_role_and_jwt_claims_enforce_rls(isolated_api) -> No
                 alice.id,
             ) == 0, f"RLS exposed Alice's row from {table} to Bob"
 
-        with pytest.raises(asyncpg.InsufficientPrivilegeError):
-            await conn.execute(
+        denied_writes = (
+            (
                 """
                 insert into public.catalog_items
                     (user_id, description, unit_price, unit)
                 values ($1::uuid, 'cross-tenant write', 1, 'item')
                 """,
                 alice.id,
-            )
+            ),
+            (
+                """
+                insert into public.security_events (user_id, event_type, outcome)
+                values ($1::uuid, 'forged', 'allowed')
+                """,
+                bob.id,
+            ),
+        )
+        for statement, user_id in denied_writes:
+            savepoint = conn.transaction()
+            await savepoint.start()
+            try:
+                with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                    await conn.execute(statement, user_id)
+            finally:
+                await savepoint.rollback()
     finally:
         await transaction.rollback()
         await conn.close()
@@ -625,7 +659,7 @@ async def test_authenticated_role_and_jwt_claims_enforce_rls(isolated_api) -> No
 
 async def test_every_owned_table_records_the_creating_tenant(isolated_api) -> None:
     """No row may be written without an owner, in any owned table."""
-    request, alice, bob, _, url = isolated_api
+    _, alice, bob, _, url = isolated_api
 
     tables = (
         "business_settings",
@@ -635,6 +669,7 @@ async def test_every_owned_table_records_the_creating_tenant(isolated_api) -> No
         "invoice_records",
         "invoice_embeddings",
         "invoice_emails",
+        "security_events",
     )
 
     conn = await asyncpg.connect(asyncpg_dsn(url))

@@ -39,6 +39,11 @@ export async function getNextInvoiceNumber(clientId: number): Promise<NextInvoic
   return data
 }
 
+export async function saveInvoice(invoice: InvoiceData): Promise<InvoiceRecord> {
+  const { data } = await api.post<InvoiceRecord>("/api/invoices/save", invoice)
+  return data
+}
+
 export async function exportInvoice(invoice: InvoiceData): Promise<Blob> {
   const { data } = await api.post<Blob>("/api/invoices/export", invoice, {
     responseType: "blob",

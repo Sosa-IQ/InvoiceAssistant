@@ -69,10 +69,14 @@ def test_frontend_job_installs_builds_lints_and_audits() -> None:
 
     assert "npm ci" in commands
     assert "npm run build" in commands
+    assert "npm run test -- --run" in commands
     assert "npm run lint" in commands
-    # Production dependencies are audited at a stricter level than dev tooling.
-    assert "npm audit --omit=dev --audit-level=moderate" in commands
-    assert "npm audit --audit-level=high" in commands
+    # Production dependencies are audited at a stricter level than dev tooling,
+    # with exact, expiring JSON-policy exceptions and an RSC reachability guard.
+    assert "node scripts/check-rsc-not-used.mjs" in commands
+    assert "node scripts/npm-audit-policy.mjs --production" in commands
+    assert "node scripts/npm-audit-policy.mjs" in commands
+    assert "npm audit --omit=dev" not in commands
 
 
 def test_sql_job_applies_schema_against_a_real_database() -> None:

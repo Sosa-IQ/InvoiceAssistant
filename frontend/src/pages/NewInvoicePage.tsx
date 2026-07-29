@@ -179,17 +179,16 @@ export default function NewInvoicePage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6 lg:p-8">
       <div>
-        <h1 className="text-2xl font-semibold">New Invoice</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Describe the invoice in plain text or record your voice. The AI will generate a structured
-          draft based on your description and historical invoice patterns.
+        <h1 className="text-3xl font-black tracking-tight">New invoice</h1>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+          Tell us what you are billing for. Type it, say it aloud, or start with a blank invoice.
         </p>
       </div>
 
       {/* Mic circle */}
-      <div className="flex flex-col items-center gap-2 py-2">
+      <div className="flex flex-col items-center gap-3 rounded-[24px] border bg-card p-6 shadow-sm sm:p-8">
         <button
           type="button"
           onClick={recording ? stopRecording : startRecording}
@@ -203,7 +202,7 @@ export default function NewInvoicePage() {
               ? "bg-red-500 hover:bg-red-600 focus-visible:ring-red-500 shadow-lg shadow-red-200"
               : transcribing
               ? "bg-muted cursor-not-allowed opacity-60"
-              : "bg-muted hover:bg-accent focus-visible:ring-primary cursor-pointer",
+              : "cursor-pointer bg-[#ff6b55] text-white shadow-md hover:bg-[#eb5945] focus-visible:ring-primary",
           ].join(" ")}
         >
           {transcribing ? (
@@ -216,7 +215,7 @@ export default function NewInvoicePage() {
               className="absolute inset-0 pointer-events-none"
             />
           ) : (
-            <Mic className="h-9 w-9 text-muted-foreground" />
+            <Mic className="h-9 w-9 text-white" />
           )}
         </button>
         <p className="text-xs text-muted-foreground h-4">
@@ -229,7 +228,7 @@ export default function NewInvoicePage() {
       </div>
 
       {/* Prompt textarea */}
-      <div className="space-y-2">
+      <div className="space-y-2 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
         <Label htmlFor="prompt">Invoice Description</Label>
         <Textarea
           id="prompt"
@@ -238,7 +237,7 @@ export default function NewInvoicePage() {
           maxLength={MAX_CHARS}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          className="resize-none"
+          className="min-h-48 resize-none rounded-xl bg-background/40 text-base leading-6"
         />
         <p className={`text-xs text-right ${prompt.length >= MAX_CHARS ? "text-destructive" : "text-muted-foreground"}`}>
           {prompt.length} / {MAX_CHARS}
@@ -248,7 +247,7 @@ export default function NewInvoicePage() {
       <Button
         onClick={handleGenerate}
         disabled={!prompt.trim() || loading || manualLoading}
-        className="w-full"
+        className="min-h-12 w-full rounded-xl"
         size="lg"
       >
         {loading ? (
@@ -266,7 +265,7 @@ export default function NewInvoicePage() {
       <Button
         onClick={handleCreateManually}
         disabled={loading || manualLoading || transcribing}
-        className="w-full"
+        className="min-h-12 w-full rounded-xl"
         size="lg"
         variant="outline"
       >

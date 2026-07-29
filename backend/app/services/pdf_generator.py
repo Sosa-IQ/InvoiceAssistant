@@ -57,16 +57,16 @@ class PDFGeneratorService:
                 mime = "image/png" if suffix == ".png" else "image/jpeg"
                 encoded = base64.b64encode(logo_file.read_bytes()).decode()
                 logo_data_uri = f"data:{mime};base64,{encoded}"
-                logger.info("Loaded logo from %s (%d bytes)", logo_file, logo_file.stat().st_size)
+                logger.info("invoice_logo_loaded")
             else:
-                logger.warning("Logo path %s not found, skipping.", logo_path)
+                logger.warning("invoice_logo_missing")
 
         template = self.env.get_template("invoice.html")
         # Serialize using alias=True so the template sees "from" (not "from_")
         invoice_dict = invoice.model_dump(by_alias=True)
         html = template.render(invoice=invoice_dict, logo_data_uri=logo_data_uri)
 
-        logger.info("Rendering PDF for invoice %s", invoice.invoice_number)
+        logger.info("invoice_pdf_rendering")
         pdf_bytes = weasyprint.HTML(string=html).write_pdf()
         logger.info("PDF rendered: %d bytes", len(pdf_bytes))
         return pdf_bytes

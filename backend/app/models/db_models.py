@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func, text
+from sqlalchemy.dialects.postgresql import ARRAY as PGARRAY
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,6 +37,20 @@ class BusinessSettings(Base):
     account_number: Mapped[str | None] = mapped_column(String)
     routing_number: Mapped[str | None] = mapped_column(String)
     payment_notes: Mapped[str | None] = mapped_column(Text)
+    default_email_subject: Mapped[str] = mapped_column(
+        String(200), default="Invoice {invoice_number}"
+    )
+    default_email_message: Mapped[str] = mapped_column(
+        Text,
+        default=(
+            "Hello {client_name},\n\n"
+            "Please find invoice {invoice_number} attached.\n\n"
+            "Best,\n{business_name}"
+        ),
+    )
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=func.now(), onupdate=func.now()
     )
@@ -126,6 +141,11 @@ class InvoiceRecord(Base):
 
 class InvoiceEmail(Base):
     __tablename__ = "invoice_emails"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "idempotency_key", name="uq_invoice_emails_user_idempotency"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True)
@@ -139,6 +159,76 @@ class InvoiceEmail(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     provider: Mapped[str] = mapped_column(String, nullable=False, default="smtp")
     provider_message_id: Mapped[str | None] = mapped_column(String)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    attempt_token: Mapped[str | None] = mapped_column(String(36))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_message: Mapped[str | None] = mapped_column(Text)
-    sent_at: Mapped[datetime | None] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+
+
+class SecurityEvent(Base):
+    __tablename__ = "security_events"
+    __table_args__ = (
+        CheckConstraint("outcome IN ('allowed', 'blocked')", name="ck_security_events_outcome"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        PGUUID(as_uuid=False), ForeignKey("profiles.id"), nullable=False, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    request_id: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now()
+    )
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+    __table_args__ = (
+        CheckConstraint("plan IN ('free', 'pro')", name="ck_subscriptions_plan"),
+        UniqueConstraint("user_id", name="uq_subscriptions_user_id"),
+        UniqueConstraint("stripe_customer_id", name="uq_subscriptions_customer"),
+        UniqueConstraint("stripe_subscription_id", name="uq_subscriptions_subscription"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        PGUUID(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    plan: Mapped[str] = mapped_column(String(32), nullable=False, default="free")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="free")
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(255))
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(255))
+    stripe_price_id: Mapped[str | None] = mapped_column(String(255))
+    # Durable history of prior Stripe subscription ids this row has been bound to.
+    # A superseded id can never rebind again, even after future cancellations.
+    superseded_subscription_ids: Mapped[list[str]] = mapped_column(
+        PGARRAY(Text), nullable=False, server_default=text("'{}'::text[]"), default=list
+    )
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_event_created_at: Mapped[int | None] = mapped_column(BigInteger)
+    checkout_idempotency_key: Mapped[str | None] = mapped_column(String(64))
+    checkout_idempotency_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The most recent open Checkout session for this row, reused instead of
+    # minting a second session while Stripe still has one open.
+    checkout_session_id: Mapped[str | None] = mapped_column(String(255))
+    checkout_session_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now()
+    )
+
+
+class StripeWebhookEvent(Base):
+    __tablename__ = "stripe_webhook_events"
+
+    event_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=func.now())

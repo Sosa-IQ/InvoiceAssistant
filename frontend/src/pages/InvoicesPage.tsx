@@ -1,20 +1,9 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Upload, FileText, CheckCircle, XCircle, Loader2, Eye, BookOpen, RefreshCw, Trash2, Pencil, Mail, Send } from "lucide-react"
+import { Upload, FileText, CheckCircle, XCircle, Loader2, Eye, BookOpen, RefreshCw, Trash2, Pencil, Mail } from "lucide-react"
 import { toast } from "sonner"
-import { useAuth } from "@/auth/AuthContext"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   Table,
   TableBody,
@@ -23,17 +12,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { EmailInvoiceDialog } from "@/components/EmailInvoiceDialog"
 import {
   deleteInvoice,
-  downloadInvoicePdf,
   indexInvoice,
-  listInvoiceEmails,
   listInvoices,
   openInvoicePdf,
-  sendInvoice,
   uploadInvoices,
 } from "@/api/invoices"
-import type { InvoiceData, InvoiceEmail, InvoiceRecord } from "@/types/invoice"
+import type { InvoiceData, InvoiceRecord } from "@/types/invoice"
 
 const STATUS_COLORS: Record<string, string> = {
   indexed: "bg-green-100 text-green-800",
@@ -50,75 +37,21 @@ function fmt(val: number | null, currency = "USD") {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(val)
 }
 
-function parseInvoice(record: InvoiceRecord): InvoiceData | null {
-  if (!record.invoice_json) return null
-  try {
-    return JSON.parse(record.invoice_json) as InvoiceData
-  } catch {
-    return null
-  }
-}
-
-function buildDefaultSubject(record: InvoiceRecord, invoice: InvoiceData | null) {
-  const senderName = invoice?.from?.name?.trim() || "Invoice Assistant"
-  return `Invoice ${record.invoice_number || record.filename} from ${senderName}`
-}
-
-function buildDefaultMessage(record: InvoiceRecord, invoice: InvoiceData | null) {
-  const recipientName = invoice?.to?.name?.trim() || record.client_name || "there"
-  const senderName = invoice?.from?.name?.trim() || "our team"
-  const senderEmail = invoice?.from?.email?.trim()
-  return `Hi ${recipientName},
-
-You are receiving this invoice on behalf of ${senderName}.
-
-Please find attached invoice ${record.invoice_number || record.filename}.
-
-Thank you,
-${senderName}${senderEmail ? `\n${senderEmail}` : ""}`
-}
-
 export default function InvoicesPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { user } = useAuth()
   const inputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [viewingId, setViewingId] = useState<number | null>(null)
   const [indexingId, setIndexingId] = useState<number | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
-  const [downloadingId, setDownloadingId] = useState<number | null>(null)
-  const [sendingId, setSendingId] = useState<number | null>(null)
   const [sendDialogRecord, setSendDialogRecord] = useState<InvoiceRecord | null>(null)
-  const [sendSubject, setSendSubject] = useState("")
-  const [sendMessage, setSendMessage] = useState("")
 
-  const { data: records = [], isLoading } = useQuery<InvoiceRecord[]>({
+  const { data: records = [], isLoading, isError, refetch } = useQuery<InvoiceRecord[]>({
     queryKey: ["invoices"],
     queryFn: listInvoices,
   })
-  const sendDialogInvoice = sendDialogRecord ? parseInvoice(sendDialogRecord) : null
-  const recipientEmail = sendDialogInvoice?.to?.email?.trim() || ""
-  const fromDisplayName = sendDialogInvoice?.from?.name?.trim() || "Invoice Assistant"
-  const replyToEmail = sendDialogInvoice?.from?.email?.trim() || user?.email || ""
-
-  const { data: emailHistory = [], isLoading: historyLoading } = useQuery<InvoiceEmail[]>({
-    queryKey: ["invoice-emails", sendDialogRecord?.id],
-    queryFn: () => listInvoiceEmails(sendDialogRecord!.id),
-    enabled: sendDialogRecord !== null,
-  })
-
-  useEffect(() => {
-    if (!sendDialogRecord) {
-      setSendSubject("")
-      setSendMessage("")
-      return
-    }
-    const invoice = parseInvoice(sendDialogRecord)
-    setSendSubject(buildDefaultSubject(sendDialogRecord, invoice))
-    setSendMessage(buildDefaultMessage(sendDialogRecord, invoice))
-  }, [sendDialogRecord])
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return
@@ -172,23 +105,6 @@ export default function InvoicesPage() {
     }
   }
 
-  async function handleDownload(r: InvoiceRecord) {
-    setDownloadingId(r.id)
-    try {
-      const blob = await downloadInvoicePdf(r.id)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = r.filename
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      toast.error("Could not download PDF.")
-    } finally {
-      setDownloadingId(null)
-    }
-  }
-
   function handleEdit(r: InvoiceRecord) {
     if (!r.invoice_json) return
     try {
@@ -214,54 +130,24 @@ export default function InvoicesPage() {
   }
 
   function handleOpenSendDialog(r: InvoiceRecord) {
-    const invoice = parseInvoice(r)
-    const recipient = invoice?.to?.email?.trim()
     if (r.status !== "exported") {
       toast.error("Only exported invoices can be emailed.")
-      return
-    }
-    if (!recipient) {
-      toast.error("This client does not have an email address yet.")
       return
     }
     setSendDialogRecord(r)
   }
 
-  async function handleSendInvoice() {
-    if (!sendDialogRecord) return
-    if (!recipientEmail) {
-      toast.error("Client email is required before sending.")
-      return
-    }
-
-    setSendingId(sendDialogRecord.id)
-    try {
-      await sendInvoice(sendDialogRecord.id, {
-        subject: sendSubject,
-        message: sendMessage,
-      })
-      toast.success("Invoice emailed successfully.")
-      queryClient.invalidateQueries({ queryKey: ["invoice-emails", sendDialogRecord.id] })
-      queryClient.invalidateQueries({ queryKey: ["invoices"] })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Email send failed."
-      toast.error(message)
-    } finally {
-      setSendingId(null)
-    }
-  }
-
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Invoices</h1>
-        <Button onClick={() => navigate("/invoices/new")}>New Invoice</Button>
+    <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div><h1 className="text-3xl font-black tracking-tight">Invoices</h1><p className="mt-1 text-sm text-muted-foreground">Create a new invoice or open work you already saved.</p></div>
+        <Button className="min-h-12 w-full rounded-xl sm:w-auto" onClick={() => navigate("/invoices/new")}>New invoice</Button>
       </div>
 
       {/* Drop zone */}
       <div
-        className={`border-2 border-dashed rounded-lg p-10 text-center transition-colors cursor-pointer ${
-          dragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+        className={`cursor-pointer rounded-[24px] border-2 border-dashed bg-card p-7 text-center shadow-sm transition-colors sm:p-10 ${
+          dragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/60"
         }`}
         onClick={() => inputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
@@ -291,13 +177,19 @@ export default function InvoicesPage() {
       </div>
 
       {/* History table */}
-      <div>
-        <h2 className="text-sm font-medium text-muted-foreground mb-2">
+      <div className="rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
+        <h2 className="mb-4 text-sm font-black uppercase tracking-[0.12em] text-muted-foreground">
           History ({records.length})
         </h2>
         {isLoading ? (
-          <div className="flex justify-center py-10">
+          <div role="status" aria-live="polite" className="flex justify-center gap-2 py-10 text-sm text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <span>Loading invoices…</span>
+          </div>
+        ) : isError ? (
+          <div role="alert" className="py-10 text-center text-sm text-destructive">
+            <p>Could not load invoice history.</p>
+            <Button type="button" variant="outline" className="mt-3" onClick={() => void refetch()}>Retry</Button>
           </div>
         ) : records.length === 0 ? (
           <div className="text-center py-10 text-muted-foreground text-sm">
@@ -305,6 +197,29 @@ export default function InvoicesPage() {
             No invoices yet.
           </div>
         ) : (
+          <>
+          <div className="space-y-3 md:hidden">
+            {records.map((r) => (
+              <article key={r.id} className="rounded-2xl border bg-background/40 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><p className="truncate font-black">{r.invoice_number ?? r.filename}</p><p className="mt-1 truncate text-sm text-muted-foreground">{r.client_name ?? "No client name"}</p></div>
+                  <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${STATUS_COLORS[r.status] ?? "bg-slate-100 text-slate-700"}`}>{r.status}</span>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-muted/60 p-3 text-sm">
+                  <div><p className="text-xs text-muted-foreground">Date</p><p className="mt-0.5 font-bold">{r.issue_date ?? "—"}</p></div>
+                  <div className="text-right"><p className="text-xs text-muted-foreground">Total</p><p className="mt-0.5 font-black">{fmt(r.grand_total, r.currency)}</p></div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {VIEWABLE.has(r.status) && <Button variant="outline" onClick={() => handleView(r)} disabled={viewingId === r.id}>{viewingId === r.id ? <Loader2 className="animate-spin" /> : <Eye />} View</Button>}
+                  {r.source === "generated" && r.invoice_json && <Button variant="outline" onClick={() => handleEdit(r)}><Pencil /> Edit</Button>}
+                  {r.source === "generated" && r.status === "exported" && <Button variant="outline" onClick={() => handleOpenSendDialog(r)}><Mail /> Email</Button>}
+                  {r.source === "generated" && <Button variant="outline" onClick={() => handleIndex(r)} disabled={!r.invoice_json || indexingId === r.id}>{indexingId === r.id ? <Loader2 className="animate-spin" /> : <BookOpen />} {r.rag_doc_id ? "Re-index" : "Train"}</Button>}
+                  <Button variant="ghost" className="text-destructive" onClick={() => handleDelete(r)} disabled={deletingId === r.id}>{deletingId === r.id ? <Loader2 className="animate-spin" /> : <Trash2 />} Delete</Button>
+                </div>
+              </article>
+            ))}
+          </div>
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -339,7 +254,7 @@ export default function InvoicesPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7"
+                          className="h-11 w-11"
                           onClick={() => handleView(r)}
                           disabled={viewingId === r.id}
                           title="View PDF"
@@ -355,7 +270,7 @@ export default function InvoicesPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7"
+                          className="h-11 w-11"
                           onClick={() => handleEdit(r)}
                           title="Edit invoice"
                         >
@@ -367,7 +282,7 @@ export default function InvoicesPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-muted-foreground"
+                          className="h-11 w-11 text-muted-foreground"
                           onClick={() => handleOpenSendDialog(r)}
                           title="Email invoice"
                         >
@@ -380,7 +295,7 @@ export default function InvoicesPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className={`h-7 w-7 ${r.rag_doc_id ? "text-green-600 hover:text-green-700" : "text-muted-foreground"}`}
+                          className={`h-11 w-11 ${r.rag_doc_id ? "text-green-600 hover:text-green-700" : "text-muted-foreground"}`}
                           onClick={() => handleIndex(r)}
                           disabled={!r.invoice_json || indexingId === r.id}
                           title={
@@ -403,7 +318,7 @@ export default function InvoicesPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        className="h-11 w-11 text-muted-foreground hover:text-destructive"
                         onClick={() => handleDelete(r)}
                         disabled={deletingId === r.id}
                         title="Delete invoice"
@@ -418,123 +333,15 @@ export default function InvoicesPage() {
               ))}
             </TableBody>
           </Table>
+          </div>
+          </>
         )}
       </div>
 
-      <Dialog open={sendDialogRecord !== null} onOpenChange={(open) => !open && setSendDialogRecord(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Email Invoice</DialogTitle>
-            <DialogDescription>
-              Review the recipient, message, and PDF before sending. The sent invoice will be CC&apos;d to your logged-in email when available.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <div className="text-xs font-medium text-muted-foreground">From</div>
-                <Input value={`${fromDisplayName} (sent through your configured mailer)`} readOnly />
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs font-medium text-muted-foreground">Reply-To</div>
-                <Input value={replyToEmail || "No reply-to email available"} readOnly />
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <div className="text-xs font-medium text-muted-foreground">Recipient</div>
-                <Input value={recipientEmail || "Missing client email"} readOnly />
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs font-medium text-muted-foreground">CC</div>
-                <Input value={user?.email || "No user email available"} readOnly />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-xs font-medium text-muted-foreground">Subject</div>
-              <Input value={sendSubject} onChange={(event) => setSendSubject(event.target.value)} />
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-xs font-medium text-muted-foreground">Message</div>
-              <Textarea
-                value={sendMessage}
-                onChange={(event) => setSendMessage(event.target.value)}
-                rows={8}
-                className="resize-y"
-              />
-            </div>
-
-            {sendDialogRecord && (
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => handleView(sendDialogRecord)}
-                  disabled={viewingId === sendDialogRecord.id}
-                >
-                  {viewingId === sendDialogRecord.id ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Eye className="mr-1.5 h-4 w-4" />}
-                  Preview PDF
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => handleDownload(sendDialogRecord)}
-                  disabled={downloadingId === sendDialogRecord.id}
-                >
-                  {downloadingId === sendDialogRecord.id ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <FileText className="mr-1.5 h-4 w-4" />}
-                  Download PDF
-                </Button>
-              </div>
-            )}
-
-            <div className="space-y-2 rounded-md border p-3">
-              <div className="text-sm font-medium">Send History</div>
-              {historyLoading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading history…
-                </div>
-              ) : emailHistory.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No sends yet for this invoice.</div>
-              ) : (
-                <div className="space-y-2">
-                  {emailHistory.map((email) => (
-                    <div key={email.id} className="rounded-md bg-muted/50 px-3 py-2 text-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium">{email.status}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {email.sent_at ? new Date(email.sent_at).toLocaleString() : "Not sent"}
-                        </span>
-                      </div>
-                      <div className="mt-1 text-muted-foreground">
-                        To: {email.recipient_email}{email.cc_email ? ` | CC: ${email.cc_email}` : ""}
-                      </div>
-                      {email.error_message && (
-                        <div className="mt-1 text-destructive">{email.error_message}</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <DialogFooter showCloseButton>
-            <Button
-              type="button"
-              onClick={handleSendInvoice}
-              disabled={!recipientEmail || !sendSubject.trim() || !sendMessage.trim() || sendingId === sendDialogRecord?.id}
-            >
-              {sendingId === sendDialogRecord?.id ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}
-              Send Invoice
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EmailInvoiceDialog
+        record={sendDialogRecord}
+        onOpenChange={(open) => !open && setSendDialogRecord(null)}
+      />
     </div>
   )
 }

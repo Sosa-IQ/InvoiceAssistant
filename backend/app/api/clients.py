@@ -54,7 +54,7 @@ async def create_client(
         select(Client).options(_with_addresses()).where(Client.id == client.id)
     )
     client = result.scalar_one()
-    logger.info("Created client id=%d name=%s", client.id, client.name)
+    logger.info("client_created")
     return ClientRead.model_validate(client)
 
 

@@ -146,6 +146,10 @@ export interface BusinessSettings {
   account_number: string | null
   routing_number: string | null
   payment_notes: string | null
+  default_email_subject: string
+  default_email_message: string
+  onboarding_completed: boolean
+  onboarding_completed_at: string | null
   updated_at: string | null
 }
 
@@ -179,6 +183,11 @@ export interface InvoiceEmail {
 export interface SendInvoiceRequest {
   subject: string
   message: string
+  recipient_email?: string | null
+  cc_email?: string | null
+  reply_to_email?: string | null
+  from_display_name?: string | null
+  idempotency_key: string
 }
 
 export interface SendInvoiceResponse {

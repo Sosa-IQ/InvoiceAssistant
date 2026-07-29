@@ -18,15 +18,26 @@ whichever process last booted, with no version, no review, and no way back.
 | `0003_rag_and_email` | pgvector `invoice_embeddings`, `invoice_emails` history, `invoice_records.storage_path`, the `chroma_doc_id` → `rag_doc_id` rename, and per-user ownership on `client_addresses` (backfilled from each address's client). |
 | `0004_normalize_adopted_schema` | Converges databases created by the former startup DDL: ownership constraints, canonical identity/timestamp/text types, duplicate-index cleanup, RLS policies, and `authenticated` grants. |
 | `0005_restore_email_defaults` | Restores the `status`, `provider`, and `created_at` server defaults omitted by SQLAlchemy-created `invoice_emails` tables. |
+| `0006_email_idempotency` | Durable idempotency metadata (`idempotency_key`, `request_fingerprint`, `attempt_count`, `attempt_token`, `lease_expires_at`) on `invoice_emails`. |
+| `0007_security_events` | `security_events` audit table backing durable rate limits, with owner-only `SELECT` RLS. |
+| `0008_email_templates` | `business_settings.default_email_subject` / `default_email_message`, tenant-customizable defaults used to compose invoice send emails. |
+| `0009_onboarding_state` | Persisted onboarding completion timestamp. Existing settings rows are backfilled complete; settings created afterward start incomplete. |
+| `0010_billing` | Tenant subscription state, Stripe identifiers/event ordering, durable Checkout idempotency metadata, and the private webhook-event ledger with forced RLS. |
 
 ## Prerequisites
 
-Alembic reads the target database from the `DATABASE_URL` environment
-variable. Nothing is committed to `alembic.ini`, so no credentials live in the
-repository.
+Alembic reads the target database from `DATABASE_URL`. It loads
+`backend/.env` the same way the FastAPI app does (process env and
+`-x db_url=...` still override). Nothing is committed to `alembic.ini`, so no
+credentials live in the repository.
+
+Dashboard-style `postgresql://` / `postgres://` URLs are accepted and normalized
+to `postgresql+asyncpg://`.
 
 ```bash
 cd backend
+# either backend/.env contains DATABASE_URL=...
+# or:
 export DATABASE_URL='postgresql+asyncpg://...'
 ```
 
@@ -128,6 +139,12 @@ on Supabase, via a project backup or `pg_dump` — because:
   invoice numbering restarts. Previously issued invoice numbers remain in
   `invoice_records.invoice_number` as text, but a re-upgrade will renumber from
   scratch and can collide with numbers already sent to clients.
+- `0010` down drops local subscription state, Checkout idempotency metadata, and
+  the Stripe webhook-event ledger. Never downgrade it after real subscriptions
+  exist; disable `BILLING_ENFORCEMENT_ENABLED` instead.
+- `0009` down removes onboarding completion timestamps. A later re-upgrade marks
+  every settings row that exists at that point complete, so per-user completion
+  history cannot be reconstructed.
 - `0001` down drops every application table.
 
 After any downgrade, downgrade the application to a matching release as well:

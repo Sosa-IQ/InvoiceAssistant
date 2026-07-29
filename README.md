@@ -9,6 +9,7 @@ Invoice Assistant is a private, authenticated invoice workflow built with FastAP
 - A Supabase project with PostgreSQL, Auth, Storage, and pgvector
 - OpenAI credentials for generation/RAG features
 - SMTP credentials for direct invoice delivery
+- Optional Stripe account and CLI for subscription test mode
 - On macOS, WeasyPrint and its native libraries:
 
 ```bash
@@ -82,7 +83,13 @@ npm run build
 npm run lint
 ```
 
-The frontend defaults to `http://localhost:8000` for the API and attaches the active Supabase access token to API requests.
+The frontend uses `VITE_API_URL` (default `http://localhost:8000`) for the API and attaches the active Supabase access token to API requests.
+
+## Onboarding and subscriptions
+
+New users complete a three-step business setup before entering the workspace. A public pricing page and authenticated billing page support Stripe Checkout, verified subscription webhooks, and the Stripe customer portal. Paid-plan enforcement is off by default.
+
+See [docs/billing.md](docs/billing.md) for test-mode setup, required environment variables, webhook verification, the current Free/Pro boundary, production activation, and safe rollback.
 
 ## Invoice email flow
 

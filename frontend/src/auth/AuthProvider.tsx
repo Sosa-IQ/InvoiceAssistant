@@ -11,6 +11,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const previousUserIdRef = useRef<string | null>(null)
+  // Monotonic id for each bootstrap. Only the latest generation owns the shared
+  // session/profile/loading state; a stale overlapping call (e.g. an older
+  // same-user refresh whose profile fetch settles after a newer identity
+  // change) must not clear loading or surface its result.
+  const bootstrapGenerationRef = useRef(0)
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -19,6 +24,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     async function bootstrapSession(nextSession: Session | null) {
+      const generation = ++bootstrapGenerationRef.current
       const nextUserId = nextSession?.user.id ?? null
       if (previousUserIdRef.current !== nextUserId) {
         queryClient.clear()
@@ -34,10 +40,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         await getCurrentUserProfile()
       } catch (error) {
+        if (generation !== bootstrapGenerationRef.current) return
         const message = error instanceof Error ? error.message : "Could not initialize your account."
         toast.error(message)
       } finally {
-        setLoading(false)
+        if (generation === bootstrapGenerationRef.current) setLoading(false)
       }
     }
 
@@ -48,7 +55,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setLoading(true)
+      const nextUserId = nextSession?.user.id ?? null
+      if (previousUserIdRef.current !== nextUserId) {
+        setLoading(true)
+      }
       void bootstrapSession(nextSession)
     })
 
