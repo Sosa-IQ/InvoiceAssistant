@@ -64,9 +64,14 @@ export default function PricingPage() {
     <div className="min-h-dvh bg-[#f7f2e8] text-[#183a32]">
       <header className="border-b border-[#ded8cd] bg-[#fffdf8]/95 px-4 py-4 backdrop-blur sm:px-6">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
-          <Link to={user ? "/invoices" : "/auth"} className="flex min-h-11 items-center gap-3 rounded-xl font-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6b55]">
-            <span aria-hidden="true" className="grid h-10 w-10 place-items-center rounded-[14px] bg-[#ff6b55] text-sm text-white">IA</span>
-            Invoice Assistant
+          <Link
+            to="/"
+            className="flex min-h-11 items-center gap-3 rounded-xl font-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6b55]"
+          >
+            <span aria-hidden="true" className="grid h-10 w-10 place-items-center rounded-[14px] bg-[#ff6b55] text-sm text-white">
+              C
+            </span>
+            Cuenvia
           </Link>
           <Button asChild variant="ghost" className="min-h-11 rounded-xl">
             <Link to={user ? "/billing" : "/auth"}>{user ? "Your plan" : "Log in"}</Link>

@@ -49,7 +49,7 @@ def test_send_invoice_request_rejects_blank_or_header_injection(subject: str, me
 
 def test_build_message_uses_display_name_when_provided(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "smtp_from_email", "invoices@example.com")
-    monkeypatch.setattr(settings, "smtp_from_name", "Invoice Assistant")
+    monkeypatch.setattr(settings, "smtp_from_name", "Cuenvia")
 
     parsed = _build(from_display_name="Sosa IQ")
     assert parsed["From"] == "Sosa IQ <invoices@example.com>"
@@ -57,10 +57,10 @@ def test_build_message_uses_display_name_when_provided(monkeypatch: pytest.Monke
 
 def test_build_message_falls_back_to_smtp_from_name(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "smtp_from_email", "invoices@example.com")
-    monkeypatch.setattr(settings, "smtp_from_name", "Invoice Assistant")
+    monkeypatch.setattr(settings, "smtp_from_name", "Cuenvia")
 
     parsed = _build(from_display_name=None)
-    assert parsed["From"] == "Invoice Assistant <invoices@example.com>"
+    assert parsed["From"] == "Cuenvia <invoices@example.com>"
 
 
 def test_build_message_never_emits_bare_address(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -115,7 +115,7 @@ def test_send_request_rejects_overly_long_display_name() -> None:
 
 def test_email_service_builds_pdf_message(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "smtp_from_email", "invoices@example.com")
-    monkeypatch.setattr(settings, "smtp_from_name", "Invoice Assistant")
+    monkeypatch.setattr(settings, "smtp_from_name", "Cuenvia")
 
     message, message_id = EmailService()._build_message(
         recipient_email="client@example.com",

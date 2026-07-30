@@ -74,7 +74,7 @@ function buildTemplateContext(
   return {
     invoice_number: record.invoice_number || record.filename,
     client_name: invoice?.to?.name?.trim() || record.client_name || "",
-    business_name: invoice?.from?.name?.trim() || settingsData?.name?.trim() || "Invoice Assistant",
+    business_name: invoice?.from?.name?.trim() || settingsData?.name?.trim() || "Cuenvia",
     issue_date: record.issue_date || invoice?.issue_date || "",
     total: record.grand_total != null ? record.grand_total.toFixed(2) : "",
     currency: record.currency || "",
@@ -155,7 +155,7 @@ export function EmailInvoiceDialog({
     }
     const invoice = parseInvoice(record)
     const defaults: DeliveryFields = {
-      fromDisplayName: invoice?.from?.name?.trim() || "Invoice Assistant",
+      fromDisplayName: invoice?.from?.name?.trim() || "Cuenvia",
       replyToEmail: invoice?.from?.email?.trim() || user?.email || "",
       recipientEmail: invoice?.to?.email?.trim() || "",
       ccEmail: user?.email || "",

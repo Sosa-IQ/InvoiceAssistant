@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { isSupabaseConfigured, missingSupabaseEnvVars, supabase } from "@/lib/supabase"
 import { useAuth } from "@/auth/AuthContext"
+import { APP_INITIALS, APP_NAME, APP_TAGLINE } from "@/lib/brand"
 
 type AuthFormData = {
   email: string
@@ -64,8 +65,8 @@ export default function AuthPage() {
       <div className="mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-8 md:grid md:min-h-[75vh] md:grid-cols-[1.1fr_0.9fr] md:items-center md:gap-14">
         <section className="min-w-0 space-y-6">
           <div className="flex items-center gap-3">
-            <span aria-hidden="true" className="grid h-12 w-12 place-items-center rounded-2xl bg-primary text-sm font-black text-primary-foreground shadow-sm">IA</span>
-            <div><p className="font-black">Invoice Assistant</p><p className="text-xs text-muted-foreground">Simple invoicing</p></div>
+            <span aria-hidden="true" className="grid h-12 w-12 place-items-center rounded-2xl bg-primary text-sm font-black text-primary-foreground shadow-sm">{APP_INITIALS}</span>
+            <div><p className="font-black">{APP_NAME}</p><p className="text-xs text-muted-foreground">{APP_TAGLINE}</p></div>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-xs font-bold text-muted-foreground">
             <LockKeyhole aria-hidden="true" className="h-3.5 w-3.5" />
