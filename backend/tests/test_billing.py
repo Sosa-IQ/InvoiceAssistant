@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
+import stripe
 from sqlalchemy import select
 
 from app.api import billing as billing_api
@@ -42,13 +43,29 @@ class FakeStripeService:
         # reconcile-before-checkout and open-session-reuse paths.
         self.subscriptions_by_customer: dict[str, list[dict]] = {}
         self.open_sessions: list[dict] = []
+        self.missing_customers: set[str] = set()
         self._session_seq = 0
+        self._customer_seq = 0
+
+    def _require_customer(self, customer_id: str) -> None:
+        if customer_id in self.missing_customers:
+            raise stripe.InvalidRequestError(
+                message=f"No such customer: '{customer_id}'",
+                param="customer",
+                code="resource_missing",
+            )
 
     async def create_customer(self, **kwargs) -> str:
         self.customer_calls.append(kwargs)
-        return "cus_test_owner"
+        self._customer_seq += 1
+        # Stable first id keeps the rest of the suite's fixtures simple; later
+        # creates (stale-customer recovery) get a distinct id.
+        if self._customer_seq == 1:
+            return "cus_test_owner"
+        return f"cus_test_owner_{self._customer_seq}"
 
     async def create_checkout_session(self, **kwargs) -> dict:
+        self._require_customer(kwargs["customer_id"])
         self.checkout_calls.append(kwargs)
         self._session_seq += 1
         session = {
@@ -65,6 +82,7 @@ class FakeStripeService:
         return session
 
     async def create_portal_session(self, **kwargs) -> str:
+        self._require_customer(kwargs["customer_id"])
         self.portal_calls.append(kwargs)
         return "https://billing.stripe.com/p/session/test"
 
@@ -77,9 +95,13 @@ class FakeStripeService:
         return deepcopy(self.subscription_state[subscription_id])
 
     async def list_subscriptions_for_customer(self, customer_id: str) -> list[dict]:
+        # Mirror live Stripe: list may return empty; missing customer fails on sessions.
+        if customer_id in self.missing_customers:
+            return []
         return [deepcopy(s) for s in self.subscriptions_by_customer.get(customer_id, [])]
 
     async def list_open_checkout_sessions(self, customer_id: str) -> list[dict]:
+        self._require_customer(customer_id)
         return [
             deepcopy(s)
             for s in self.open_sessions
@@ -336,15 +358,15 @@ async def test_checkout_is_server_owned_and_persists_idempotency_args(billing_ap
     response = await request(owner, "post", "/api/billing/checkout-session")
     assert response.status_code == 200, response.text
     assert response.json() == {"url": "https://checkout.stripe.com/c/pay/cs_test_1"}
-    # The customer create carries a stable per-user idempotency key.
-    assert fake.customer_calls == [{
-        "email": owner.email,
-        "user_id": owner.id,
-        "idempotency_key": f"customer-create:{owner.id}",
-    }]
+    # Customer create carries a per-user idempotency key (suffix rotates after
+    # stale-customer recovery so Stripe cannot revive a deleted cus_ id).
+    assert len(fake.customer_calls) == 1
+    assert fake.customer_calls[0]["email"] == owner.email
+    assert fake.customer_calls[0]["user_id"] == owner.id
+    assert fake.customer_calls[0]["idempotency_key"].startswith(f"customer-create:{owner.id}")
     assert len(fake.checkout_calls) == 1
     checkout = fake.checkout_calls[0]
-    assert checkout["customer_id"] == "cus_test_owner"
+    assert checkout["customer_id"].startswith("cus_test_owner")
     assert checkout["user_id"] == owner.id
     assert checkout["price_id"] == "price_test_pro"
     assert checkout["success_url"] == "http://localhost:5173/billing?checkout=success"
@@ -355,7 +377,7 @@ async def test_checkout_is_server_owned_and_persists_idempotency_args(billing_ap
     assert isinstance(checkout["expires_at"], int)
 
     status = await request(owner, "get", "/api/billing/status")
-    assert status.json()["stripe_customer_id"] == "cus_test_owner"
+    assert status.json()["stripe_customer_id"].startswith("cus_test_owner")
     assert status.json()["plan"] == "free"
 
 
@@ -376,14 +398,16 @@ async def test_delayed_webhook_subscription_is_reconciled_before_second_checkout
 ) -> None:
     request, owner, _, fake, _ = billing_api_fixture
     await _start_checkout(request, owner)
+    customer_id = fake.checkout_calls[0]["customer_id"]
     fake.open_sessions.clear()
     delayed = subscription_event(
         event_id="unused",
         created=300,
         user_id=owner.id,
         subscription_id="sub_delayed",
+        customer=customer_id,
     )["data"]["object"]
-    fake.subscriptions_by_customer["cus_test_owner"] = [delayed]
+    fake.subscriptions_by_customer[customer_id] = [delayed]
 
     response = await request(owner, "post", "/api/billing/checkout-session")
 
@@ -392,6 +416,28 @@ async def test_delayed_webhook_subscription_is_reconciled_before_second_checkout
     status = (await request(owner, "get", "/api/billing/status")).json()
     assert status["plan"] == "pro"
     assert status["stripe_subscription_id"] == "sub_delayed"
+
+
+async def test_checkout_recovers_when_stored_stripe_customer_is_missing(
+    billing_api_fixture,
+) -> None:
+    """Stale cus_ ids (deleted in Stripe Dashboard / test cleanup) must not brick Checkout."""
+    request, owner, _, fake, harness = billing_api_fixture
+    await _start_checkout(request, owner)
+    stale_customer = fake.checkout_calls[0]["customer_id"]
+    fake.missing_customers.add(stale_customer)
+    fake.open_sessions.clear()
+
+    response = await request(owner, "post", "/api/billing/checkout-session", json={"interval": "month"})
+    assert response.status_code == 200, response.text
+    assert len(fake.customer_calls) == 2
+    assert len(fake.checkout_calls) == 2
+    new_customer = fake.checkout_calls[1]["customer_id"]
+    assert new_customer != stale_customer
+    assert new_customer.startswith("cus_test_owner")
+
+    status = (await request(owner, "get", "/api/billing/status")).json()
+    assert status["stripe_customer_id"] == new_customer
 
 
 async def test_checkout_rotates_expiring_key_after_authoritative_session_miss(

@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
+import stripe
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert
@@ -126,8 +127,45 @@ def _validated_checkout_url(url: str | None) -> str:
     return url  # type: ignore[return-value]
 
 
+def _is_missing_stripe_customer_error(exc: BaseException) -> bool:
+    """True when Stripe says the stored customer id no longer exists."""
+    if not isinstance(exc, stripe.InvalidRequestError):
+        return False
+    code = getattr(exc, "code", None) or ""
+    param = getattr(exc, "param", None) or ""
+    message = str(exc) or ""
+    if code == "resource_missing" and param == "customer":
+        return True
+    return "No such customer" in message
+
+
 def _is_terminal_status(status: str) -> bool:
     return status in _TERMINAL_SUBSCRIPTION_STATUSES
+
+
+def _clear_stale_stripe_customer(row: Subscription) -> None:
+    """Drop a local customer mapping Stripe no longer recognizes.
+
+    Leaves plan/status alone when still entitled (should be rare); clears Checkout
+    fields so a replacement customer and session can be created cleanly.
+    """
+    logger.warning(
+        "stripe_customer_missing_cleared",
+        extra={"had_customer": bool(row.stripe_customer_id)},
+    )
+    row.stripe_customer_id = None
+    # If we were not entitled, also drop any dangling subscription id so a
+    # replacement Checkout can bind a fresh subscription without conflict.
+    if row.plan != "pro" or row.status not in _ACTIVE_STATUSES:
+        row.stripe_subscription_id = None
+        row.stripe_price_id = None
+        row.current_period_end = None
+        row.cancel_at_period_end = False
+    row.checkout_session_id = None
+    row.checkout_session_expires_at = None
+    row.checkout_idempotency_key = None
+    row.checkout_idempotency_created_at = None
+    row.updated_at = datetime.now(timezone.utc)
 
 
 def _local_checkout_block(row: Subscription) -> str | None:
@@ -465,38 +503,58 @@ async def create_checkout_session(
         except HTTPException:
             raise
         except Exception as exc:
-            await db.rollback()
-            logger.exception("stripe_reconcile_failed", extra={"exception_type": type(exc).__name__})
-            raise HTTPException(502, "Billing provider is unavailable. Please try again.") from exc
-        if blocked:
-            # Persist the reconciled state, then direct the tenant to the portal.
-            await db.commit()
-            raise HTTPException(409, "A subscription already exists. Manage it in billing.")
+            if _is_missing_stripe_customer_error(exc):
+                _clear_stale_stripe_customer(row)
+                await db.commit()
+                # Re-lock after commit so the create path still serializes.
+                row = await _get_or_create_subscription(db, current_user.id)
+            else:
+                await db.rollback()
+                logger.exception(
+                    "stripe_reconcile_failed", extra={"exception_type": type(exc).__name__}
+                )
+                raise HTTPException(502, "Billing provider is unavailable. Please try again.") from exc
+        else:
+            if blocked:
+                # Persist the reconciled state, then direct the tenant to the portal.
+                await db.commit()
+                raise HTTPException(409, "A subscription already exists. Manage it in billing.")
 
-        try:
-            existing = await _reuse_open_checkout_session(
-                row, current_user.id, price_id=price_id
-            )
-        except Exception as exc:
-            await db.rollback()
-            logger.exception(
-                "stripe_open_session_lookup_failed", extra={"exception_type": type(exc).__name__}
-            )
-            raise HTTPException(502, "Billing provider is unavailable. Please try again.") from exc
-        if existing is not None:
-            url = _validated_checkout_url(existing.get("url"))
-            _persist_open_session(row, existing)
-            await db.commit()
-            return BillingSessionResponse(url=url)
+            try:
+                existing = await _reuse_open_checkout_session(
+                    row, current_user.id, price_id=price_id
+                )
+            except Exception as exc:
+                if _is_missing_stripe_customer_error(exc):
+                    _clear_stale_stripe_customer(row)
+                    await db.commit()
+                    row = await _get_or_create_subscription(db, current_user.id)
+                else:
+                    await db.rollback()
+                    logger.exception(
+                        "stripe_open_session_lookup_failed",
+                        extra={"exception_type": type(exc).__name__},
+                    )
+                    raise HTTPException(
+                        502, "Billing provider is unavailable. Please try again."
+                    ) from exc
+            else:
+                if existing is not None:
+                    url = _validated_checkout_url(existing.get("url"))
+                    _persist_open_session(row, existing)
+                    await db.commit()
+                    return BillingSessionResponse(url=url)
 
     try:
         if not row.stripe_customer_id:
+            # Use a recover-safe key: stable create for first time, unique when
+            # replacing a deleted Stripe customer so idempotency cannot revive
+            # a dead cus_ id from Stripe's 24h idempotency cache.
+            recover_token = uuid.uuid4().hex[:12]
             row.stripe_customer_id = await stripe_svc.create_customer(
                 email=current_user.email,
                 user_id=current_user.id,
-                # Stable per user: the customer is created at most once, so a
-                # retried request reuses the same provider resource.
-                idempotency_key=f"customer-create:{current_user.id}",
+                idempotency_key=f"customer-create:{current_user.id}:{recover_token}",
             )
         checkout_key = _checkout_idempotency_key(row)
         # Durably persist the customer mapping and idempotency key BEFORE the
