@@ -18,6 +18,7 @@ from app.models.schemas import (
     BillingPlansResponse,
     BillingSessionResponse,
     BillingStatusRead,
+    CheckoutSessionRequest,
     PackCheckoutRequest,
     UsageStatusRead,
 )
@@ -145,12 +146,15 @@ def _local_checkout_block(row: Subscription) -> str | None:
     return "A subscription that needs attention already exists. Manage it in billing."
 
 
-def _session_targets_configured_price(session: dict) -> bool:
-    """True only when an open Checkout session is for exactly the Pro price."""
+def _session_targets_configured_price(session: dict, *, price_id: str | None = None) -> bool:
+    """True when an open Checkout session is for a configured Pro price (or a specific one)."""
     items = (session.get("line_items") or {}).get("data") or []
     if len(items) != 1:
         return False
-    return (items[0].get("price") or {}).get("id") == settings.stripe_pro_price_id
+    sid = (items[0].get("price") or {}).get("id")
+    if price_id is not None:
+        return sid == price_id
+    return sid in settings.configured_pro_price_ids
 
 
 def _status_response(row: Subscription | None) -> BillingStatusRead:
@@ -178,13 +182,13 @@ def _free_plan(currency: str) -> BillingPlanRead:
     )
 
 
-def _pro_price_is_valid(price: dict) -> bool:
-    if price.get("id") != settings.stripe_pro_price_id:
+def _pro_price_is_valid(price: dict, *, expected_id: str, expected_interval: str) -> bool:
+    if price.get("id") != expected_id:
         return False
     if price.get("active") is not True:
         return False
     recurring = price.get("recurring")
-    if not isinstance(recurring, dict) or recurring.get("interval") not in _SUPPORTED_INTERVALS:
+    if not isinstance(recurring, dict) or recurring.get("interval") != expected_interval:
         return False
     unit_amount = price.get("unit_amount")
     if not isinstance(unit_amount, int) or isinstance(unit_amount, bool) or unit_amount < 0:
@@ -193,24 +197,25 @@ def _pro_price_is_valid(price: dict) -> bool:
     return isinstance(currency, str) and len(currency) == 3 and currency.isalpha()
 
 
-async def _authoritative_pro_plan() -> BillingPlanRead:
-    """Build the Pro plan from Stripe, never from divergent env display values."""
+async def _authoritative_pro_plan(*, price_id: str, expected_interval: str) -> BillingPlanRead:
+    """Build a Pro plan card from Stripe, never from divergent env display values."""
     try:
-        price = await stripe_svc.retrieve_price(settings.stripe_pro_price_id)
+        price = await stripe_svc.retrieve_price(price_id)
     except Exception as exc:
         logger.exception(
             "stripe_price_retrieve_failed", extra={"exception_type": type(exc).__name__}
         )
         raise HTTPException(502, "Billing plans are temporarily unavailable.") from exc
-    if not _pro_price_is_valid(price):
-        logger.error("stripe_price_invalid", extra={"price_id": settings.stripe_pro_price_id})
+    if not _pro_price_is_valid(price, expected_id=price_id, expected_interval=expected_interval):
+        logger.error("stripe_price_invalid", extra={"price_id": price_id})
         raise HTTPException(502, "The configured Pro price is not usable.")
+    label = "Pro (yearly)" if expected_interval == "year" else "Pro"
     return BillingPlanRead(
         code="pro",
-        name="Pro",
+        name=label,
         price_cents=int(price["unit_amount"]),
         currency=str(price["currency"]).upper(),
-        interval=price["recurring"]["interval"],
+        interval=expected_interval,  # type: ignore[arg-type]
         features=_PRO_FEATURES,
     )
 
@@ -220,21 +225,44 @@ async def get_plans() -> BillingPlansResponse:
     if not settings.stripe_configured:
         # Billing is wholly disabled: serve an honest env-based fallback catalog.
         currency = settings.stripe_currency
-        pro = BillingPlanRead(
-            code="pro",
-            name="Pro",
-            price_cents=settings.stripe_pro_price_cents,
-            currency=currency,
-            interval="month",
-            features=_PRO_FEATURES,
-        )
+        plans = [
+            _free_plan(currency),
+            BillingPlanRead(
+                code="pro",
+                name="Pro",
+                price_cents=settings.stripe_pro_price_cents,
+                currency=currency,
+                interval="month",
+                features=_PRO_FEATURES,
+            ),
+        ]
+        if settings.stripe_pro_yearly_price_id:
+            # Fallback display only; real yearly amount comes from Stripe when configured.
+            plans.append(
+                BillingPlanRead(
+                    code="pro",
+                    name="Pro (yearly)",
+                    price_cents=12_000,
+                    currency=currency,
+                    interval="year",
+                    features=_PRO_FEATURES,
+                )
+            )
     else:
-        pro = await _authoritative_pro_plan()
-        currency = pro.currency
+        monthly = await _authoritative_pro_plan(
+            price_id=settings.stripe_pro_price_id, expected_interval="month"
+        )
+        currency = monthly.currency
+        plans = [_free_plan(currency), monthly]
+        if settings.stripe_pro_yearly_price_id:
+            yearly = await _authoritative_pro_plan(
+                price_id=settings.stripe_pro_yearly_price_id, expected_interval="year"
+            )
+            plans.append(yearly)
     return BillingPlansResponse(
         configured=settings.stripe_configured,
         enforcement_enabled=settings.billing_enforcement_enabled,
-        plans=[_free_plan(currency), pro],
+        plans=plans,
     )
 
 
@@ -373,7 +401,9 @@ async def _reconcile_existing_subscriptions(
     return True
 
 
-async def _reuse_open_checkout_session(row: Subscription, user_id: str) -> dict | None:
+async def _reuse_open_checkout_session(
+    row: Subscription, user_id: str, *, price_id: str
+) -> dict | None:
     """Return an existing open Checkout session to reuse, or None.
 
     Reusing the still-open session prevents minting a second one after the local
@@ -388,7 +418,7 @@ async def _reuse_open_checkout_session(row: Subscription, user_id: str) -> dict 
             continue
         if (session.get("metadata") or {}).get("user_id") != user_id:
             continue
-        if not _session_targets_configured_price(session):
+        if not _session_targets_configured_price(session, price_id=price_id):
             continue
         if not session.get("url"):
             continue
@@ -406,10 +436,17 @@ def _persist_open_session(row: Subscription, session: dict) -> None:
 
 @router.post("/checkout-session", response_model=BillingSessionResponse)
 async def create_checkout_session(
+    body: CheckoutSessionRequest = CheckoutSessionRequest(),
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> BillingSessionResponse:
     _require_stripe()
+    interval = body.interval or "month"
+    try:
+        price_id = settings.pro_price_id_for_interval(interval)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
     # The row is locked FOR UPDATE, serializing all of this tenant's Checkout
     # attempts so reconciliation and session reuse cannot race each other.
     row = await _get_or_create_subscription(db, current_user.id)
@@ -437,7 +474,9 @@ async def create_checkout_session(
             raise HTTPException(409, "A subscription already exists. Manage it in billing.")
 
         try:
-            existing = await _reuse_open_checkout_session(row, current_user.id)
+            existing = await _reuse_open_checkout_session(
+                row, current_user.id, price_id=price_id
+            )
         except Exception as exc:
             await db.rollback()
             logger.exception(
@@ -478,11 +517,13 @@ async def create_checkout_session(
         session = await stripe_svc.create_checkout_session(
             customer_id=row.stripe_customer_id,
             user_id=current_user.id,
-            price_id=settings.stripe_pro_price_id,
+            price_id=price_id,
             success_url=f"{settings.frontend_url}/billing?checkout=success",
             cancel_url=f"{settings.frontend_url}/pricing?checkout=cancelled",
-            idempotency_key=f"checkout:{checkout_key}",
+            # Include interval so monthly/yearly retries never collide.
+            idempotency_key=f"checkout:{interval}:{checkout_key}",
             expires_at=expires_at,
+            metadata={"user_id": current_user.id, "interval": interval},
         )
     except Exception as exc:
         logger.exception("stripe_checkout_session_failed", extra={"exception_type": type(exc).__name__})
@@ -536,12 +577,11 @@ def _price_id(subscription: dict) -> str | None:
 
 
 def _has_single_configured_price(snapshot: dict) -> bool:
-    """True only when the subscription carries exactly one item on the exact
-    configured Pro price. Multiple items or any other price never grant Pro."""
+    """True only when the subscription carries exactly one item on a configured Pro price."""
     items = (snapshot.get("items") or {}).get("data") or []
     if len(items) != 1:
         return False
-    return (items[0].get("price") or {}).get("id") == settings.stripe_pro_price_id
+    return (items[0].get("price") or {}).get("id") in settings.configured_pro_price_ids
 
 
 def _snapshot_matches_owner(
@@ -572,6 +612,25 @@ def _supersede_current_subscription(row: Subscription, replacement_id: str) -> N
     row.checkout_session_expires_at = None
 
 
+def _subscription_period_end(snapshot: dict) -> int | None:
+    """Stripe API 2025+ may put period end on items; support both shapes."""
+    top = snapshot.get("current_period_end")
+    if top is not None:
+        try:
+            return int(top)
+        except (TypeError, ValueError):
+            pass
+    items = (snapshot.get("items") or {}).get("data") or []
+    if items:
+        item_end = items[0].get("current_period_end")
+        if item_end is not None:
+            try:
+                return int(item_end)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def _apply_snapshot_to_row(
     row: Subscription,
     snapshot: dict,
@@ -590,9 +649,9 @@ def _apply_snapshot_to_row(
     price_id = _price_id(snapshot)
     if price_id:
         row.stripe_price_id = price_id
-    period_end = snapshot.get("current_period_end")
+    period_end = _subscription_period_end(snapshot)
     row.current_period_end = (
-        datetime.fromtimestamp(int(period_end), tz=timezone.utc) if period_end else None
+        datetime.fromtimestamp(period_end, tz=timezone.utc) if period_end else None
     )
     row.cancel_at_period_end = bool(snapshot.get("cancel_at_period_end", False))
     if event_created_at is not None:

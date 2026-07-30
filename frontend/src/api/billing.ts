@@ -64,8 +64,10 @@ export async function getUsageStatus(): Promise<UsageStatus> {
   return data
 }
 
-export async function createCheckoutSession(): Promise<BillingSession> {
-  const { data } = await api.post<BillingSession>("/api/billing/checkout-session")
+export async function createCheckoutSession(
+  interval: "month" | "year" = "month",
+): Promise<BillingSession> {
+  const { data } = await api.post<BillingSession>("/api/billing/checkout-session", { interval })
   return data
 }
 

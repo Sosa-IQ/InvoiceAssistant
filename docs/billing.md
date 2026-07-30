@@ -39,11 +39,18 @@ cd backend
 
 The expected head is `0011_usage_metering`. This includes `subscriptions`, the private `stripe_webhook_events` ledger, `usage_events`, and `usage_pack_credits`.
 
-## 2. Create a test product and recurring price
+## 2. Create a test product and recurring prices
 
-Use Stripe **test mode**. In the Stripe Dashboard, create one product named `Invoice Assistant Pro` and one monthly recurring price. Record the resulting `price_...` ID. Stripe documents the Dashboard as the canonical pricing-model path; it also avoids shell-specific nested-parameter quoting.
+Use Stripe **test mode**. In the Stripe Dashboard, create **one** product named `Invoice Assistant Pro` with:
 
-Once `STRIPE_PRO_PRICE_ID` is configured, the `/plans` catalog reads the amount, currency, and interval directly from that Stripe Price, so the displayed price always matches what Stripe charges. `STRIPE_PRO_PRICE_CENTS` and `STRIPE_CURRENCY` are used only as a fallback display when billing is disabled (all three Stripe identifiers blank); they never override the live Price.
+- Monthly recurring price **$12 USD** → `STRIPE_PRO_PRICE_ID`
+- Yearly recurring price **$120 USD** (optional but recommended) → `STRIPE_PRO_YEARLY_PRICE_ID`
+
+Keep both prices on the **same product**. Separate products are not required.
+
+Once configured, `/plans` reads amount/currency/interval from live Stripe Prices. `STRIPE_PRO_PRICE_CENTS` / `STRIPE_CURRENCY` are fallback display only when Stripe is fully disabled.
+
+**Coupons / launch promo:** Stripe coupons attach at the product or account level more often than per-price. If a coupon applies to both monthly and yearly and you only want monthly promo pricing, either accept that for launch, use a promotion code with duration limits, or (only if needed) split products later. One product + two prices is the preferred model.
 
 ## 3. Configure the backend
 

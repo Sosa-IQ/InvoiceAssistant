@@ -101,9 +101,12 @@ class FakeStripeService:
 @pytest.fixture
 def stripe_config(monkeypatch: pytest.MonkeyPatch):
     values = {
-        "stripe_secret_key": "sk_test_example",
+        "stripe_secret_key": "sk_test_example_key_for_unit_tests_only",
         "stripe_webhook_secret": "whsec_example",
         "stripe_pro_price_id": "price_test_pro",
+        "stripe_pro_yearly_price_id": "",
+        "stripe_ai_pack_price_id": "",
+        "stripe_voice_pack_price_id": "",
         "stripe_pro_price_cents": 1200,
         "stripe_currency": "USD",
         "stripe_expected_livemode": False,
@@ -165,7 +168,7 @@ def subscription_event(
 
 async def _start_checkout(request, tenant) -> None:
     """Establish the tenant's local Stripe customer mapping via Checkout."""
-    response = await request(tenant, "post", "/api/billing/checkout-session")
+    response = await request(tenant, "post", "/api/billing/checkout-session", json={"interval": "month"})
     assert response.status_code == 200, response.text
 
 
@@ -192,6 +195,9 @@ def test_enforcement_requires_complete_stripe_configuration() -> None:
         Settings(
             database_url="postgresql+asyncpg://localhost/test",
             billing_enforcement_enabled=True,
+            stripe_secret_key="",
+            stripe_webhook_secret="",
+            stripe_pro_price_id="",
         )
 
 
@@ -199,7 +205,9 @@ def test_partial_stripe_configuration_is_rejected_even_without_enforcement() -> 
     with pytest.raises(ValueError, match="configured together"):
         Settings(
             database_url="postgresql+asyncpg://localhost/test",
-            stripe_secret_key="sk_test_example",
+            stripe_secret_key="sk_test_example_key_for_unit_tests_only",
+            stripe_webhook_secret="",
+            stripe_pro_price_id="",
         )
 
 

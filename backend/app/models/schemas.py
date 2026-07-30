@@ -490,5 +490,10 @@ class PackCheckoutRequest(BaseModel):
     pack: Literal["ai_tokens", "voice_seconds"]
 
 
+class CheckoutSessionRequest(BaseModel):
+    """Optional body; defaults to monthly Pro when omitted."""
+    interval: Literal["month", "year"] = "month"
+
+
 class BillingSessionResponse(BaseModel):
     url: str
