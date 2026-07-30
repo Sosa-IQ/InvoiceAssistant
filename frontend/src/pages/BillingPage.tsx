@@ -105,7 +105,7 @@ export default function BillingPage() {
                 Manage subscription
               </Button>
             ) : (
-              <Button type="button" disabled={isBusy} onClick={() => checkout.mutate()} className="min-h-12 rounded-xl bg-[#ff6b55] px-5 font-bold text-white hover:bg-[#eb5945]">
+              <Button type="button" disabled={isBusy} onClick={() => checkout.mutate("month")} className="min-h-12 rounded-xl bg-[#ff6b55] px-5 font-bold text-white hover:bg-[#eb5945]">
                 {checkout.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                 Upgrade to Pro
               </Button>

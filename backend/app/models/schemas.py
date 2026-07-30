@@ -252,6 +252,12 @@ class InvoiceRecordRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class InvoiceStatusUpdate(BaseModel):
+    """User-facing lifecycle status for generated invoices."""
+
+    status: Literal["drafted", "sent", "paid"]
+
+
 # ---------------------------------------------------------------------------
 # Bulk upload response
 # ---------------------------------------------------------------------------

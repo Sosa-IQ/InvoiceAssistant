@@ -7,9 +7,9 @@ import type { InvoiceRecord } from "@/types/invoice"
 
 vi.mock("@/api/invoices", () => ({
   deleteInvoice: vi.fn(),
-  indexInvoice: vi.fn(),
   listInvoices: vi.fn(),
   openInvoicePdf: vi.fn(),
+  updateInvoiceStatus: vi.fn(),
   uploadInvoices: vi.fn(),
 }))
 
@@ -39,11 +39,11 @@ function exportedInvoiceWithoutRecipient(): InvoiceRecord {
     grand_total: 100,
     currency: "USD",
     rag_doc_id: null,
-    status: "exported",
+    status: "drafted",
     invoice_json: JSON.stringify({
       invoice_number: "ACME-0001",
       issue_date: "2026-07-26",
-      status: "exported",
+      status: "drafted",
       from: { name: "Owner", email: "owner@example.com" },
       to: { client_id: 1, name: "Acme Corp", email: null },
       line_items: [],
@@ -58,7 +58,7 @@ beforeEach(() => {
 })
 
 describe("InvoicesPage history actions", () => {
-  it("opens email history for an exported invoice with no saved recipient", async () => {
+  it("opens email history for a drafted invoice with no saved recipient", async () => {
     const user = userEvent.setup()
     vi.mocked(listInvoices).mockResolvedValue([exportedInvoiceWithoutRecipient()])
     renderWithProviders(<InvoicesPage />)

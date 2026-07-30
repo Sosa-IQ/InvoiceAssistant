@@ -83,6 +83,14 @@ export async function indexInvoice(recordId: number): Promise<InvoiceRecord> {
   return data
 }
 
+export async function updateInvoiceStatus(
+  recordId: number,
+  status: "drafted" | "sent" | "paid",
+): Promise<InvoiceRecord> {
+  const { data } = await api.patch<InvoiceRecord>(`/api/invoices/${recordId}/status`, { status })
+  return data
+}
+
 export async function deleteInvoice(recordId: number): Promise<void> {
   await api.delete(`/api/invoices/${recordId}`)
 }

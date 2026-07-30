@@ -28,7 +28,7 @@ import type { BusinessSettings } from "@/types/invoice"
 const invoiceJson = JSON.stringify({
   invoice_number: "ACME-0001",
   issue_date: "2026-07-23",
-  status: "exported",
+  status: "drafted",
   from: { name: "Owner Consulting", address: null, email: "billing@example.com", phone: null, logo_path: null },
   to: { client_id: 1, name: "Acme Corp", address: null, email: "client@example.com", phone: null },
   line_items: [],
@@ -52,7 +52,7 @@ function makeRecord(overrides: Partial<InvoiceRecord> = {}): InvoiceRecord {
     grand_total: 100,
     currency: "USD",
     rag_doc_id: null,
-    status: "exported",
+    status: "drafted",
     invoice_json: invoiceJson,
     created_at: null,
     ...overrides,

@@ -26,6 +26,7 @@ from app.models.schemas import (
     InvoiceEmailAttemptRead,
     InvoiceEmailRead,
     InvoiceRecordRead,
+    InvoiceStatusUpdate,
     NextInvoiceNumberResponse,
     ReconcileInvoiceEmailRequest,
     ReviseInvoiceRequest,
@@ -53,6 +54,11 @@ from app.security import enforce_rate_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/invoices", tags=["invoices"])
+
+# User-facing lifecycle for generated invoices (manual + automatic transitions).
+_LIFECYCLE_STATUSES = frozenset({"drafted", "sent", "paid"})
+# Statuses that may receive email (must also be generated + have invoice_json).
+_EMAILABLE_STATUSES = frozenset({"drafted", "sent", "paid", "exported"})
 
 storage = StorageService()
 parser = PDFParserService()
@@ -576,7 +582,9 @@ async def _persist_invoice(
         existing.issue_date = invoice.issue_date
         existing.grand_total = invoice.totals.grand_total
         existing.currency = "USD"
-        existing.status = "exported"
+        # Preserve user lifecycle once past draft (sent/paid); otherwise drafted.
+        if existing.status not in {"sent", "paid"}:
+            existing.status = "drafted"
         existing.invoice_json = invoice_json_str
         record = existing
     else:
@@ -593,7 +601,7 @@ async def _persist_invoice(
             issue_date=invoice.issue_date,
             grand_total=invoice.totals.grand_total,
             currency="USD",
-            status="exported",
+            status="drafted",
             invoice_json=invoice_json_str,
         )
         db.add(record)
@@ -711,11 +719,8 @@ async def _auto_index_record(
         chunks=chunks,
     )
     record.rag_doc_id = doc_id
-    # Keep export lifecycle status so email/send still treats the invoice as exported.
-    if record.status in {"stored", "draft"}:
-        record.status = "indexed"
-    elif record.status not in {"exported", "indexed"}:
-        record.status = "indexed"
+    # Never overwrite user-facing lifecycle (drafted/sent/paid) with index markers.
+    # Upload pipeline may still use stored → leave stored alone for Free imports.
     await db.commit()
     await db.refresh(record)
 
@@ -744,6 +749,25 @@ async def index_invoice(
         db, vector_store=vector_store, user_id=current_user.id, record=record
     )
     logger.info("invoice_document_indexed")
+    return InvoiceRecordRead.model_validate(record)
+
+
+@router.patch("/{record_id}/status", response_model=InvoiceRecordRead)
+async def update_invoice_status(
+    record_id: int,
+    body: InvoiceStatusUpdate,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> InvoiceRecordRead:
+    """Manually set drafted / sent / paid on a generated invoice."""
+    record = await _get_owned_invoice_record(db, current_user.id, record_id)
+    if record.source != "generated":
+        raise HTTPException(422, "Only generated invoices support lifecycle status.")
+    if body.status not in _LIFECYCLE_STATUSES:
+        raise HTTPException(422, "Status must be drafted, sent, or paid.")
+    record.status = body.status
+    await db.commit()
+    await db.refresh(record)
     return InvoiceRecordRead.model_validate(record)
 
 
@@ -832,7 +856,7 @@ async def reconcile_email_attempt(
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> InvoiceEmailRead:
-    await _get_owned_invoice_record(db, current_user.id, record_id)
+    record = await _get_owned_invoice_record(db, current_user.id, record_id)
     result = await db.execute(
         select(InvoiceEmail)
         .where(
@@ -856,6 +880,8 @@ async def reconcile_email_attempt(
         email.status = "sent"
         email.sent_at = now
         email.error_message = None
+        if record.status != "paid":
+            record.status = "sent"
     else:
         email.status = "failed"
         email.error_message = "Owner reconciled stale attempt as not delivered."
@@ -874,8 +900,10 @@ async def send_invoice(
     db: AsyncSession = Depends(get_db),
 ) -> SendInvoiceResponse:
     record = await _get_owned_invoice_record(db, current_user.id, record_id)
-    if record.status != "exported":
-        raise HTTPException(422, "Only exported invoices can be emailed.")
+    if record.source != "generated" or not record.invoice_json:
+        raise HTTPException(422, "Only saved generated invoices can be emailed.")
+    if record.status not in _EMAILABLE_STATUSES:
+        raise HTTPException(422, "This invoice cannot be emailed in its current status.")
     if not record.invoice_json:
         raise HTTPException(422, "This invoice does not have saved invoice data for email sending.")
 
@@ -1098,6 +1126,13 @@ async def send_invoice(
             "This email attempt was superseded; inspect its current state before retrying.",
         )
     await db.refresh(email_record)
+
+    # Auto-advance lifecycle: first successful send marks the invoice as sent
+    # (never overwrite paid).
+    if record.status != "paid":
+        record.status = "sent"
+        await db.commit()
+        await db.refresh(record)
 
     logger.info("email_sent")
     return SendInvoiceResponse(email=InvoiceEmailRead.model_validate(email_record))

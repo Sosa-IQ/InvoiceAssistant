@@ -12,7 +12,7 @@ engine = create_async_engine(DATABASE_URL, echo=False)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 # Keep in step with the newest file in backend/migrations/versions.
-EXPECTED_SCHEMA_REVISION = "0011_usage_metering"
+EXPECTED_SCHEMA_REVISION = "0012_invoice_status_lifecycle"
 
 
 class Base(DeclarativeBase):
