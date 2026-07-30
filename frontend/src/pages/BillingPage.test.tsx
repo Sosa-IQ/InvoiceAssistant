@@ -5,13 +5,21 @@ import { renderWithProviders } from "@/test/utils"
 
 vi.mock("@/api/billing", () => ({
   getBillingStatus: vi.fn(),
+  getUsageStatus: vi.fn(),
   createCheckoutSession: vi.fn(),
   createPortalSession: vi.fn(),
+  createPackCheckoutSession: vi.fn(),
 }))
 vi.mock("@/lib/externalNavigation", () => ({ redirectToStripe: vi.fn() }))
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
-import { createCheckoutSession, createPortalSession, getBillingStatus } from "@/api/billing"
+import {
+  createCheckoutSession,
+  createPackCheckoutSession,
+  createPortalSession,
+  getBillingStatus,
+  getUsageStatus,
+} from "@/api/billing"
 import { redirectToStripe } from "@/lib/externalNavigation"
 import BillingPage from "./BillingPage"
 
@@ -27,10 +35,31 @@ const freeStatus = {
   enforcement_enabled: false,
 } as const
 
+const freeUsage = {
+  pro_entitled: false,
+  period_start: "2026-07-01T00:00:00Z",
+  period_end: "2026-08-01T00:00:00Z",
+  ai_tokens_included: 0,
+  ai_tokens_used: 0,
+  ai_tokens_pack_remaining: 0,
+  ai_tokens_remaining: 0,
+  ai_usage_ratio: 0,
+  voice_seconds_included: 0,
+  voice_seconds_used: 0,
+  voice_seconds_pack_remaining: 0,
+  voice_seconds_remaining: 0,
+  voice_usage_ratio: 0,
+  packs_frozen: false,
+  ai_pack_configured: false,
+  voice_pack_configured: false,
+} as const
+
 beforeEach(() => {
   vi.mocked(getBillingStatus).mockResolvedValue(freeStatus)
+  vi.mocked(getUsageStatus).mockResolvedValue(freeUsage)
   vi.mocked(createCheckoutSession).mockResolvedValue({ url: "https://checkout.stripe.com/test" })
   vi.mocked(createPortalSession).mockResolvedValue({ url: "https://billing.stripe.com/test" })
+  vi.mocked(createPackCheckoutSession).mockResolvedValue({ url: "https://checkout.stripe.com/pack" })
 })
 afterEach(() => vi.clearAllMocks())
 

@@ -39,11 +39,28 @@ class Settings(BaseSettings):
     email_send_limit: int = 10
     email_send_window_seconds: int = 600
     email_send_lease_seconds: int = 900
-    invoice_generation_limit: int = 20
+    invoice_generation_limit: int = 15
     invoice_generation_window_seconds: int = 3600
+    # Pro included monthly allotments (do not roll over).
+    ai_monthly_token_limit: int = 2_500_000
+    voice_monthly_seconds: int = 3600
+    voice_hourly_request_limit: int = 10
+    voice_hourly_window_seconds: int = 3600
+    voice_max_seconds_per_clip: int = 180
+    voice_max_upload_mb: int = 8
+    ai_max_prompt_chars: int = 8000
+    # Global provider spend circuit breaker across all tenants (cents / 24h).
+    global_daily_ai_budget_cents: int = 5000
+    # One-time Pro-only top-up packs (optional until Stripe pack prices exist).
+    stripe_ai_pack_price_id: str = ""
+    stripe_voice_pack_price_id: str = ""
+    ai_pack_tokens: int = 1_000_000
+    voice_pack_seconds: int = 3600
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
     stripe_pro_price_id: str = ""
+    # Optional second Pro price on the same product (yearly). Empty = monthly only.
+    stripe_pro_yearly_price_id: str = ""
     stripe_pro_price_cents: int = 1200
     stripe_currency: str = "USD"
     stripe_expected_livemode: bool = False
@@ -77,6 +94,16 @@ class Settings(BaseSettings):
             self.email_send_lease_seconds,
             self.invoice_generation_limit,
             self.invoice_generation_window_seconds,
+            self.ai_monthly_token_limit,
+            self.voice_monthly_seconds,
+            self.voice_hourly_request_limit,
+            self.voice_hourly_window_seconds,
+            self.voice_max_seconds_per_clip,
+            self.voice_max_upload_mb,
+            self.ai_max_prompt_chars,
+            self.global_daily_ai_budget_cents,
+            self.ai_pack_tokens,
+            self.voice_pack_seconds,
         )
         if any(value < 1 for value in limits):
             raise ValueError("Rate limits and windows must be positive.")
@@ -147,6 +174,30 @@ class Settings(BaseSettings):
             and self.stripe_webhook_secret
             and self.stripe_pro_price_id
         )
+
+    @property
+    def configured_pro_price_ids(self) -> frozenset[str]:
+        ids = {self.stripe_pro_price_id}
+        if self.stripe_pro_yearly_price_id:
+            ids.add(self.stripe_pro_yearly_price_id)
+        return frozenset(i for i in ids if i)
+
+    def pro_price_id_for_interval(self, interval: str) -> str:
+        if interval == "year":
+            if not self.stripe_pro_yearly_price_id:
+                raise ValueError("Yearly Pro price is not configured.")
+            return self.stripe_pro_yearly_price_id
+        if interval == "month":
+            return self.stripe_pro_price_id
+        raise ValueError(f"Unsupported billing interval: {interval}")
+
+    @property
+    def ai_pack_configured(self) -> bool:
+        return self.stripe_configured and bool(self.stripe_ai_pack_price_id)
+
+    @property
+    def voice_pack_configured(self) -> bool:
+        return self.stripe_configured and bool(self.stripe_voice_pack_price_id)
 
     @property
     def max_upload_bytes(self) -> int:

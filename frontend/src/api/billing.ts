@@ -5,7 +5,7 @@ export type BillingPlan = {
   name: string
   price_cents: number
   currency: string
-  interval: "month"
+  interval: "month" | "year"
   features: string[]
 }
 
@@ -27,7 +27,27 @@ export type BillingStatus = {
   enforcement_enabled: boolean
 }
 
+export type UsageStatus = {
+  pro_entitled: boolean
+  period_start: string
+  period_end: string
+  ai_tokens_included: number
+  ai_tokens_used: number
+  ai_tokens_pack_remaining: number
+  ai_tokens_remaining: number
+  ai_usage_ratio: number
+  voice_seconds_included: number
+  voice_seconds_used: number
+  voice_seconds_pack_remaining: number
+  voice_seconds_remaining: number
+  voice_usage_ratio: number
+  packs_frozen: boolean
+  ai_pack_configured: boolean
+  voice_pack_configured: boolean
+}
+
 export type BillingSession = { url: string }
+export type PackKind = "ai_tokens" | "voice_seconds"
 
 export async function getBillingPlans(): Promise<BillingPlansResponse> {
   const { data } = await api.get<BillingPlansResponse>("/api/billing/plans")
@@ -39,8 +59,20 @@ export async function getBillingStatus(): Promise<BillingStatus> {
   return data
 }
 
-export async function createCheckoutSession(): Promise<BillingSession> {
-  const { data } = await api.post<BillingSession>("/api/billing/checkout-session")
+export async function getUsageStatus(): Promise<UsageStatus> {
+  const { data } = await api.get<UsageStatus>("/api/billing/usage")
+  return data
+}
+
+export async function createCheckoutSession(
+  interval: "month" | "year" = "month",
+): Promise<BillingSession> {
+  const { data } = await api.post<BillingSession>("/api/billing/checkout-session", { interval })
+  return data
+}
+
+export async function createPackCheckoutSession(pack: PackKind): Promise<BillingSession> {
+  const { data } = await api.post<BillingSession>("/api/billing/pack-checkout-session", { pack })
   return data
 }
 

@@ -232,3 +232,54 @@ class StripeWebhookEvent(Base):
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
     event_created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=func.now())
+
+
+class UsageEvent(Base):
+    __tablename__ = "usage_events"
+    __table_args__ = (
+        CheckConstraint("feature IN ('ai_text', 'voice')", name="ck_usage_events_feature"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        PGUUID(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    feature: Mapped[str] = mapped_column(String(32), nullable=False)
+    tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    audio_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    estimated_cost_micros: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    request_id: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now()
+    )
+
+
+class UsagePackCredit(Base):
+    __tablename__ = "usage_pack_credits"
+    __table_args__ = (
+        CheckConstraint(
+            "pack_kind IN ('ai_tokens', 'voice_seconds')",
+            name="ck_usage_pack_credits_kind",
+        ),
+        UniqueConstraint(
+            "stripe_checkout_session_id",
+            name="uq_usage_pack_credits_checkout_session",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        PGUUID(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    pack_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    tokens_remaining: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    voice_seconds_remaining: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    stripe_checkout_session_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    stripe_payment_intent_id: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now()
+    )

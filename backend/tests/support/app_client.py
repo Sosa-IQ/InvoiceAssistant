@@ -56,7 +56,7 @@ class FakeOpenAIService:
         from app.models.schemas import InvoiceData
 
         self.generate_calls.append(kwargs)
-        return InvoiceData.model_validate(
+        invoice = InvoiceData.model_validate(
             {
                 "invoice_number": None,
                 "issue_date": "2026-07-23",
@@ -75,6 +75,7 @@ class FakeOpenAIService:
                 "totals": {"subtotal": 10, "grand_total": 10},
             }
         )
+        return invoice, 100, 50
 
 
 @dataclass

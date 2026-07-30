@@ -1,5 +1,6 @@
 import asyncio
 import time
+from typing import Any
 
 import stripe
 
@@ -9,6 +10,19 @@ from app.config import settings
 # fields like ``active`` can change. A short TTL lets a deactivation propagate
 # without turning every /plans call into a synchronous Stripe round trip.
 _PRICE_CACHE_TTL_SECONDS = 600
+
+
+def _as_dict(obj: Any) -> dict:
+    """Convert Stripe SDK objects to plain dicts (dict(stripe_obj) is unsafe)."""
+    if obj is None:
+        return {}
+    if isinstance(obj, dict):
+        return obj
+    if hasattr(obj, "to_dict_recursive"):
+        return obj.to_dict_recursive()
+    if hasattr(obj, "to_dict"):
+        return obj.to_dict()
+    return dict(obj)
 
 
 class StripeService:
@@ -39,30 +53,31 @@ class StripeService:
         cancel_url: str,
         idempotency_key: str,
         expires_at: int,
+        mode: str = "subscription",
+        metadata: dict | None = None,
     ) -> dict:
-        session = await asyncio.to_thread(
-            stripe.checkout.Session.create,
-            api_key=settings.stripe_secret_key,
-            idempotency_key=idempotency_key,
-            mode="subscription",
-            customer=customer_id,
-            line_items=[{"price": price_id, "quantity": 1}],
-            client_reference_id=user_id,
-            metadata={"user_id": user_id},
-            subscription_data={"metadata": {"user_id": user_id}},
-            success_url=success_url,
-            cancel_url=cancel_url,
-            # Expire the hosted session in lockstep with the local idempotency
-            # key TTL, so once the key rotates no older session is still open.
-            expires_at=expires_at,
-            allow_promotion_codes=True,
-        )
-        # Structured data (not just the URL) so the caller can persist the
-        # session id/expiry and later detect that it is still open.
+        meta = {"user_id": user_id, **(metadata or {})}
+        kwargs: dict = {
+            "api_key": settings.stripe_secret_key,
+            "idempotency_key": idempotency_key,
+            "mode": mode,
+            "customer": customer_id,
+            "line_items": [{"price": price_id, "quantity": 1}],
+            "client_reference_id": user_id,
+            "metadata": meta,
+            "success_url": success_url,
+            "cancel_url": cancel_url,
+            "expires_at": expires_at,
+        }
+        if mode == "subscription":
+            kwargs["subscription_data"] = {"metadata": {"user_id": user_id}}
+            kwargs["allow_promotion_codes"] = True
+        session = await asyncio.to_thread(stripe.checkout.Session.create, **kwargs)
+        data = _as_dict(session)
         return {
-            "id": str(session["id"]),
-            "url": str(session["url"]),
-            "expires_at": int(session["expires_at"]),
+            "id": str(data["id"]),
+            "url": str(data["url"]),
+            "expires_at": int(data["expires_at"]),
         }
 
     async def list_subscriptions_for_customer(self, customer_id: str) -> list[dict]:
@@ -78,7 +93,8 @@ class StripeService:
             status="all",
             limit=100,
         )
-        return [dict(item) for item in result.get("data", [])]
+        data = _as_dict(result).get("data") or []
+        return [_as_dict(item) for item in data]
 
     async def list_open_checkout_sessions(self, customer_id: str) -> list[dict]:
         """List a customer's open Checkout sessions with line items expanded.
@@ -94,7 +110,8 @@ class StripeService:
             limit=100,
             expand=["data.line_items"],
         )
-        return [dict(item) for item in result.get("data", [])]
+        data = _as_dict(result).get("data") or []
+        return [_as_dict(item) for item in data]
 
     async def create_portal_session(self, *, customer_id: str, return_url: str) -> str:
         session = await asyncio.to_thread(
@@ -103,7 +120,7 @@ class StripeService:
             customer=customer_id,
             return_url=return_url,
         )
-        return str(session["url"])
+        return str(_as_dict(session)["url"])
 
     async def retrieve_price(self, price_id: str) -> dict:
         """Fetch the configured Price from Stripe, cached briefly per process."""
@@ -116,7 +133,7 @@ class StripeService:
             price_id,
             api_key=settings.stripe_secret_key,
         )
-        data = dict(price)
+        data = _as_dict(price)
         self._price_cache[price_id] = (now, data)
         return data
 
@@ -127,7 +144,7 @@ class StripeService:
             subscription_id,
             api_key=settings.stripe_secret_key,
         )
-        return dict(subscription)
+        return _as_dict(subscription)
 
     def construct_event(self, payload: bytes, signature: str) -> dict:
         event = stripe.Webhook.construct_event(
@@ -135,7 +152,7 @@ class StripeService:
             signature,
             settings.stripe_webhook_secret,
         )
-        return dict(event)
+        return _as_dict(event)
 
 
 stripe_service = StripeService()

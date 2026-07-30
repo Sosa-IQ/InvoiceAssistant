@@ -64,7 +64,7 @@ async def test_save_persists_exported_record_and_returns_json(seeded_api) -> Non
     assert response.status_code == 200, response.text
 
     body = response.json()
-    assert body["status"] == "exported"
+    assert body["status"] == "drafted"
     assert body["invoice_number"], body
     assert body["invoice_json"], body
     assert body["client_id"] == owner.client_id
@@ -78,7 +78,7 @@ async def test_save_persists_exported_record_and_returns_json(seeded_api) -> Non
         )
     finally:
         await conn.close()
-    assert row["status"] == "exported"
+    assert row["status"] == "drafted"
     assert row["invoice_number"] == body["invoice_number"]
     assert row["invoice_json"]
 
@@ -103,7 +103,7 @@ async def test_export_still_streams_pdf_and_upserts(seeded_api) -> None:
     conn = await asyncpg.connect(asyncpg_dsn(url))
     try:
         count = await conn.fetchval(
-            "SELECT count(*) FROM public.invoice_records WHERE user_id = $1::uuid AND status = 'exported'",
+            "SELECT count(*) FROM public.invoice_records WHERE user_id = $1::uuid AND status = 'drafted'",
             owner.id,
         )
     finally:

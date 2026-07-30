@@ -22,7 +22,7 @@ export default function PricingPage() {
   const navigate = useNavigate()
   const plansQuery = useQuery({ queryKey: ["billing", "plans"], queryFn: getBillingPlans })
   const checkout = useMutation({
-    mutationFn: createCheckoutSession,
+    mutationFn: (interval: "month" | "year") => createCheckoutSession(interval),
     onSuccess: ({ url }) => {
       try {
         redirectToStripe(url)
@@ -57,7 +57,7 @@ export default function PricingPage() {
       navigate("/auth", { state: { from: { pathname: "/pricing" } } })
       return
     }
-    checkout.mutate()
+    checkout.mutate(plan.interval === "year" ? "year" : "month")
   }
 
   return (
@@ -79,7 +79,8 @@ export default function PricingPage() {
           <p className="text-sm font-black uppercase tracking-[0.16em] text-[#e45441]">Pricing</p>
           <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Simple plans. No mystery.</h1>
           <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-[#557067]">
-            Start with the essentials. Upgrade only when you need assisted drafting, voice input, or email delivery.
+            Free covers manual invoicing and PDFs. Pro adds email, AI drafting and edits, and voice —
+            $12/month or $120/year, with a launch promo of $9/month for the first 3 months when available.
           </p>
         </div>
 
@@ -89,17 +90,23 @@ export default function PricingPage() {
           </p>
         )}
 
-        <div className="mt-10 grid gap-5 md:grid-cols-2">
+        <div className={`mt-10 grid gap-5 ${plans.length > 2 ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
           {plans.map((plan) => {
             const isPro = plan.code === "pro"
             return (
-              <section key={plan.code} className={`flex min-w-0 flex-col rounded-[28px] border p-6 shadow-[0_16px_45px_rgba(24,58,50,0.07)] sm:p-8 ${isPro ? "border-[#9dbb63] bg-[#eff8d8]" : "border-[#ded8cd] bg-[#fffdf8]"}`}>
+              <section key={`${plan.code}-${plan.interval}`} className={`flex min-w-0 flex-col rounded-[28px] border p-6 shadow-[0_16px_45px_rgba(24,58,50,0.07)] sm:p-8 ${isPro ? "border-[#9dbb63] bg-[#eff8d8]" : "border-[#ded8cd] bg-[#fffdf8]"}`}>
                 <div>
                   <p className="text-sm font-black uppercase tracking-[0.14em] text-[#557067]">{plan.name}</p>
                   <p className="mt-3 flex items-end gap-2">
                     <span className="text-5xl font-black tracking-tight">{formatPrice(plan)}</span>
-                    <span className="pb-1 text-sm text-[#557067]">/{plan.interval}</span>
+                    <span className="pb-1 text-sm text-[#557067]">/{plan.interval === "year" ? "year" : "month"}</span>
                   </p>
+                  {isPro && plan.interval === "year" && (
+                    <p className="mt-2 text-sm font-semibold text-[#31533f]">Best value — 2 months free vs monthly</p>
+                  )}
+                  {isPro && plan.interval === "month" && (
+                    <p className="mt-2 text-sm text-[#557067]">Launch promo codes apply at checkout when available</p>
+                  )}
                 </div>
                 <ul className="mt-7 flex-1 space-y-3">
                   {plan.features.map((feature) => (
@@ -116,7 +123,11 @@ export default function PricingPage() {
                   className={`mt-8 min-h-12 w-full rounded-xl font-black ${isPro ? "bg-[#183a32] text-white hover:bg-[#264d43]" : "bg-[#ff6b55] text-white hover:bg-[#eb5945]"}`}
                 >
                   {checkout.isPending && isPro ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {isPro ? (configured ? "Choose Pro" : "Billing setup required") : "Start with Free"}
+                  {isPro
+                    ? (configured
+                      ? (plan.interval === "year" ? "Choose Pro yearly" : "Choose Pro monthly")
+                      : "Billing setup required")
+                    : "Start with Free"}
                   {(!checkout.isPending || !isPro) && <ArrowRight className="h-4 w-4" />}
                 </Button>
               </section>

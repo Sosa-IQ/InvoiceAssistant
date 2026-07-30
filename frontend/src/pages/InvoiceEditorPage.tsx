@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate, useBlocker, type BlockerFunction } from "react-router-dom"
 import { useForm, useFieldArray, useWatch } from "react-hook-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, Trash2, Loader2, GripVertical, Save } from "lucide-react"
+import { Plus, Trash2, Loader2, GripVertical, Save, Mic } from "lucide-react"
 import { toast } from "sonner"
 import {
   DndContext,
@@ -20,7 +20,8 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { getNextInvoiceNumber, saveInvoice } from "@/api/invoices"
+import { getNextInvoiceNumber, reviseInvoice, saveInvoice } from "@/api/invoices"
+import { transcribeAudio } from "@/api/voice"
 import { createClient, createClientAddress, listClients } from "@/api/clients"
 import { EmailInvoiceDialog } from "@/components/EmailInvoiceDialog"
 import { Button } from "@/components/ui/button"
@@ -109,6 +110,12 @@ export default function InvoiceEditorPage() {
   const [savedRecord, setSavedRecord] = useState<InvoiceRecord | null>(null)
   const [showEmailPrompt, setShowEmailPrompt] = useState(false)
   const [emailDialogRecord, setEmailDialogRecord] = useState<InvoiceRecord | null>(null)
+  const [aiInstruction, setAiInstruction] = useState("")
+  const [aiRevising, setAiRevising] = useState(false)
+  const [aiRecording, setAiRecording] = useState(false)
+  const [aiTranscribing, setAiTranscribing] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
   const suppressDraftRef = useRef(false)
 
   const routeInvoice = (location.state as { invoice?: InvoiceData } | null)?.invoice ?? null
@@ -123,7 +130,7 @@ export default function InvoiceEditorPage() {
       }
     })()
 
-  const { register, control, handleSubmit, setValue, reset, formState: { isDirty } } =
+  const { register, control, handleSubmit, setValue, reset, getValues, formState: { isDirty } } =
     useForm<InvoiceData>({
       defaultValues: initialInvoice ?? {
         invoice_number: "",
@@ -303,6 +310,71 @@ export default function InvoiceEditorPage() {
     void syncInvoiceNumber(billTo.client_id)
   }, [billTo?.client_id, currentInvoiceNumber, syncInvoiceNumber])
 
+  async function onAiRevise() {
+    const instruction = aiInstruction.trim()
+    if (!instruction) {
+      toast.error("Describe what to change.")
+      return
+    }
+    setAiRevising(true)
+    try {
+      const { invoice } = await reviseInvoice(instruction, getValues())
+      reset(invoice)
+      setAiInstruction("")
+      toast.success("Draft updated with AI.")
+    } catch {
+      toast.error("AI could not update this draft. Try a clearer instruction or edit manually.")
+    } finally {
+      setAiRevising(false)
+    }
+  }
+
+  async function startAiRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream)
+      const actualMimeType = recorder.mimeType || "audio/webm"
+      chunksRef.current = []
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data)
+      }
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop())
+        const blob = new Blob(chunksRef.current, { type: actualMimeType })
+        setAiTranscribing(true)
+        try {
+          const transcript = await transcribeAudio(blob)
+          if (transcript) {
+            setAiInstruction((prev) => (prev ? `${prev}\n${transcript}` : transcript))
+            toast.success("Voice transcribed.")
+          }
+        } catch {
+          toast.error("Transcription failed")
+        } finally {
+          setAiTranscribing(false)
+        }
+      }
+      recorder.start()
+      mediaRecorderRef.current = recorder
+      setAiRecording(true)
+    } catch {
+      toast.error("Microphone access denied.")
+    }
+  }
+
+  function stopAiRecording() {
+    mediaRecorderRef.current?.stop()
+    mediaRecorderRef.current = null
+    setAiRecording(false)
+  }
+
+  useEffect(() => {
+    return () => {
+      mediaRecorderRef.current?.stop()
+      mediaRecorderRef.current = null
+    }
+  }, [])
+
   async function onSave(data: InvoiceData) {
     setIsSaving(true)
     try {
@@ -368,6 +440,60 @@ export default function InvoiceEditorPage() {
       </div>
 
       <form className="space-y-6" onSubmit={handleSubmit(onSave)}>
+
+        <section className="rounded-[24px] border border-border bg-card p-4 shadow-sm sm:p-5">
+          <Label htmlFor="ai-revise" className="text-foreground">
+            Update with AI
+          </Label>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Keep this draft and describe changes by typing or voice. Uses your AI and voice allowances.
+          </p>
+          <div className="mt-3 flex flex-col items-center gap-2 sm:flex-row sm:items-start">
+            <button
+              type="button"
+              onClick={aiRecording ? stopAiRecording : startAiRecording}
+              disabled={aiRevising || aiTranscribing}
+              title={aiRecording ? "Click to stop" : "Click to record"}
+              className={[
+                "relative flex h-16 w-16 shrink-0 items-center justify-center rounded-full transition-all",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                aiRecording
+                  ? "bg-red-500 text-white shadow-lg hover:bg-red-600 focus-visible:ring-red-500"
+                  : aiTranscribing
+                    ? "cursor-not-allowed bg-muted opacity-60"
+                    : "cursor-pointer bg-primary text-primary-foreground shadow-md hover:opacity-90 focus-visible:ring-primary",
+              ].join(" ")}
+            >
+              {aiTranscribing ? (
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              ) : (
+                <Mic className="h-6 w-6" />
+              )}
+            </button>
+            <p className="text-xs text-muted-foreground sm:pt-5">
+              {aiTranscribing ? "Transcribing…" : aiRecording ? "Recording — click to stop" : "Click to record"}
+            </p>
+          </div>
+          <Textarea
+            id="ai-revise"
+            className="mt-3 min-h-24 bg-background text-foreground"
+            value={aiInstruction}
+            onChange={(e) => setAiInstruction(e.target.value)}
+            placeholder="Example: Change tax to 6.35% and add a travel line for $40"
+            maxLength={8000}
+          />
+          <div className="mt-3 flex justify-end">
+            <Button
+              type="button"
+              className="min-h-11 rounded-xl"
+              disabled={aiRevising || aiRecording || aiTranscribing || !aiInstruction.trim()}
+              onClick={() => void onAiRevise()}
+            >
+              {aiRevising ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              Update draft
+            </Button>
+          </div>
+        </section>
 
         {/* Header info */}
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">

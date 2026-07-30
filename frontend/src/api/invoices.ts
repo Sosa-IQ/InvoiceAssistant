@@ -27,6 +27,17 @@ export async function generateInvoice(prompt: string): Promise<GenerateInvoiceRe
   return data
 }
 
+export async function reviseInvoice(
+  instruction: string,
+  invoice: InvoiceData,
+): Promise<GenerateInvoiceResponse> {
+  const { data } = await api.post<GenerateInvoiceResponse>("/api/invoices/revise", {
+    instruction,
+    invoice,
+  })
+  return data
+}
+
 export async function createInvoiceDraft(): Promise<InvoiceData> {
   const { data } = await api.get<InvoiceData>("/api/invoices/draft")
   return data
@@ -69,6 +80,14 @@ export async function downloadInvoicePdf(recordId: number): Promise<Blob> {
 
 export async function indexInvoice(recordId: number): Promise<InvoiceRecord> {
   const { data } = await api.post<InvoiceRecord>(`/api/invoices/${recordId}/index`)
+  return data
+}
+
+export async function updateInvoiceStatus(
+  recordId: number,
+  status: "drafted" | "sent" | "paid",
+): Promise<InvoiceRecord> {
+  const { data } = await api.patch<InvoiceRecord>(`/api/invoices/${recordId}/status`, { status })
   return data
 }
 

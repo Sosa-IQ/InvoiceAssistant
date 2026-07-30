@@ -20,7 +20,7 @@ const plans: BillingPlansResponse = {
   enforcement_enabled: false,
   plans: [
     { code: "free", name: "Free", price_cents: 0, currency: "USD", interval: "month", features: ["Create and edit invoices"] },
-    { code: "pro", name: "Pro", price_cents: 1200, currency: "USD", interval: "month", features: ["Email invoice delivery", "AI-assisted invoice drafts", "Voice input"] },
+    { code: "pro", name: "Pro", price_cents: 1200, currency: "USD", interval: "month", features: ["Email invoice delivery", "AI-assisted drafting and edits", "Voice input"] },
   ],
 }
 
@@ -45,7 +45,7 @@ describe("PricingPage", () => {
     expect(await screen.findByRole("heading", { name: /simple plans/i })).toBeInTheDocument()
     expect(screen.getByText("$12")).toBeInTheDocument()
     expect(screen.getByText("Create and edit invoices")).toBeInTheDocument()
-    expect(screen.getByText("AI-assisted invoice drafts")).toBeInTheDocument()
+    expect(screen.getByText("AI-assisted drafting and edits")).toBeInTheDocument()
     expect(screen.queryByText(/payment tracking|monthly revenue|overdue/i)).not.toBeInTheDocument()
   })
 
@@ -53,7 +53,7 @@ describe("PricingPage", () => {
     const user = userEvent.setup()
     renderWithProviders(<Harness />, { auth: { user: null }, initialEntries: ["/pricing"] })
     await screen.findByText("$12")
-    await user.click(screen.getByRole("button", { name: /choose pro/i }))
+    await user.click(screen.getByRole("button", { name: /choose pro monthly/i }))
     expect(await screen.findByText("Sign-in destination")).toBeInTheDocument()
     expect(createCheckoutSession).not.toHaveBeenCalled()
   })
@@ -62,8 +62,9 @@ describe("PricingPage", () => {
     const user = userEvent.setup()
     renderWithProviders(<Harness />, { initialEntries: ["/pricing"] })
     await screen.findByText("$12")
-    await user.click(screen.getByRole("button", { name: /choose pro/i }))
+    await user.click(screen.getByRole("button", { name: /choose pro monthly/i }))
     expect(createCheckoutSession).toHaveBeenCalledTimes(1)
+    expect(createCheckoutSession).toHaveBeenCalledWith("month")
     expect(redirectToStripe).toHaveBeenCalledWith("https://checkout.stripe.com/test")
   })
 

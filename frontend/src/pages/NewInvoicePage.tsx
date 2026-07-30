@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { createInvoiceDraft, generateInvoice } from "@/api/invoices"
 import { transcribeAudio } from "@/api/voice"
 
-const MAX_CHARS = 2000
+const MAX_CHARS = 8000
 const BTN_SIZE = 112 // px — matches w-28 h-28
 const DRAFT_KEY = "invoice_draft"
 

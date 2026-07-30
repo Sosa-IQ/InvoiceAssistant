@@ -252,6 +252,12 @@ class InvoiceRecordRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class InvoiceStatusUpdate(BaseModel):
+    """User-facing lifecycle status for generated invoices."""
+
+    status: Literal["drafted", "sent", "paid"]
+
+
 # ---------------------------------------------------------------------------
 # Bulk upload response
 # ---------------------------------------------------------------------------
@@ -325,12 +331,17 @@ class InvoiceSchema(BaseModel):
 # ---------------------------------------------------------------------------
 
 class GenerateInvoiceRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, max_length=2000)
+    prompt: str = Field(..., min_length=1, max_length=8000)
 
 
 class GenerateInvoiceResponse(BaseModel):
     invoice: InvoiceData
     rag_docs_used: int = 0
+
+
+class ReviseInvoiceRequest(BaseModel):
+    instruction: str = Field(..., min_length=1, max_length=8000)
+    invoice: InvoiceData
 
 
 class NextInvoiceNumberResponse(BaseModel):
@@ -460,6 +471,34 @@ class BillingStatusRead(BaseModel):
     cancel_at_period_end: bool = False
     configured: bool
     enforcement_enabled: bool
+
+
+class UsageStatusRead(BaseModel):
+    pro_entitled: bool
+    period_start: datetime
+    period_end: datetime
+    ai_tokens_included: int
+    ai_tokens_used: int
+    ai_tokens_pack_remaining: int
+    ai_tokens_remaining: int
+    ai_usage_ratio: float
+    voice_seconds_included: int
+    voice_seconds_used: int
+    voice_seconds_pack_remaining: int
+    voice_seconds_remaining: int
+    voice_usage_ratio: float
+    packs_frozen: bool
+    ai_pack_configured: bool
+    voice_pack_configured: bool
+
+
+class PackCheckoutRequest(BaseModel):
+    pack: Literal["ai_tokens", "voice_seconds"]
+
+
+class CheckoutSessionRequest(BaseModel):
+    """Optional body; defaults to monthly Pro when omitted."""
+    interval: Literal["month", "year"] = "month"
 
 
 class BillingSessionResponse(BaseModel):

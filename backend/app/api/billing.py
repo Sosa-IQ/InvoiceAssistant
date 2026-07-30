@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
+import stripe
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert
@@ -18,8 +19,18 @@ from app.models.schemas import (
     BillingPlansResponse,
     BillingSessionResponse,
     BillingStatusRead,
+    CheckoutSessionRequest,
+    PackCheckoutRequest,
+    UsageStatusRead,
 )
 from app.services.stripe_service import stripe_service
+from app.services.usage_service import (
+    PACK_AI,
+    PACK_VOICE,
+    credit_pack_from_checkout,
+    get_usage_snapshot,
+    is_pro_entitled,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/billing", tags=["billing"])
@@ -53,11 +64,13 @@ _FREE_FEATURES = [
     "Create and edit invoices",
     "Manage clients and catalog items",
     "Export invoice PDFs",
+    "Import past invoice PDFs",
 ]
 _PRO_FEATURES = [
     "Email invoice delivery",
-    "AI-assisted invoice drafts",
+    "AI-assisted drafting and edits",
     "Voice input",
+    "Automatic smart suggestions from your invoices",
 ]
 
 
@@ -114,8 +127,45 @@ def _validated_checkout_url(url: str | None) -> str:
     return url  # type: ignore[return-value]
 
 
+def _is_missing_stripe_customer_error(exc: BaseException) -> bool:
+    """True when Stripe says the stored customer id no longer exists."""
+    if not isinstance(exc, stripe.InvalidRequestError):
+        return False
+    code = getattr(exc, "code", None) or ""
+    param = getattr(exc, "param", None) or ""
+    message = str(exc) or ""
+    if code == "resource_missing" and param == "customer":
+        return True
+    return "No such customer" in message
+
+
 def _is_terminal_status(status: str) -> bool:
     return status in _TERMINAL_SUBSCRIPTION_STATUSES
+
+
+def _clear_stale_stripe_customer(row: Subscription) -> None:
+    """Drop a local customer mapping Stripe no longer recognizes.
+
+    Leaves plan/status alone when still entitled (should be rare); clears Checkout
+    fields so a replacement customer and session can be created cleanly.
+    """
+    logger.warning(
+        "stripe_customer_missing_cleared",
+        extra={"had_customer": bool(row.stripe_customer_id)},
+    )
+    row.stripe_customer_id = None
+    # If we were not entitled, also drop any dangling subscription id so a
+    # replacement Checkout can bind a fresh subscription without conflict.
+    if row.plan != "pro" or row.status not in _ACTIVE_STATUSES:
+        row.stripe_subscription_id = None
+        row.stripe_price_id = None
+        row.current_period_end = None
+        row.cancel_at_period_end = False
+    row.checkout_session_id = None
+    row.checkout_session_expires_at = None
+    row.checkout_idempotency_key = None
+    row.checkout_idempotency_created_at = None
+    row.updated_at = datetime.now(timezone.utc)
 
 
 def _local_checkout_block(row: Subscription) -> str | None:
@@ -134,12 +184,15 @@ def _local_checkout_block(row: Subscription) -> str | None:
     return "A subscription that needs attention already exists. Manage it in billing."
 
 
-def _session_targets_configured_price(session: dict) -> bool:
-    """True only when an open Checkout session is for exactly the Pro price."""
+def _session_targets_configured_price(session: dict, *, price_id: str | None = None) -> bool:
+    """True when an open Checkout session is for a configured Pro price (or a specific one)."""
     items = (session.get("line_items") or {}).get("data") or []
     if len(items) != 1:
         return False
-    return (items[0].get("price") or {}).get("id") == settings.stripe_pro_price_id
+    sid = (items[0].get("price") or {}).get("id")
+    if price_id is not None:
+        return sid == price_id
+    return sid in settings.configured_pro_price_ids
 
 
 def _status_response(row: Subscription | None) -> BillingStatusRead:
@@ -167,13 +220,13 @@ def _free_plan(currency: str) -> BillingPlanRead:
     )
 
 
-def _pro_price_is_valid(price: dict) -> bool:
-    if price.get("id") != settings.stripe_pro_price_id:
+def _pro_price_is_valid(price: dict, *, expected_id: str, expected_interval: str) -> bool:
+    if price.get("id") != expected_id:
         return False
     if price.get("active") is not True:
         return False
     recurring = price.get("recurring")
-    if not isinstance(recurring, dict) or recurring.get("interval") not in _SUPPORTED_INTERVALS:
+    if not isinstance(recurring, dict) or recurring.get("interval") != expected_interval:
         return False
     unit_amount = price.get("unit_amount")
     if not isinstance(unit_amount, int) or isinstance(unit_amount, bool) or unit_amount < 0:
@@ -182,24 +235,25 @@ def _pro_price_is_valid(price: dict) -> bool:
     return isinstance(currency, str) and len(currency) == 3 and currency.isalpha()
 
 
-async def _authoritative_pro_plan() -> BillingPlanRead:
-    """Build the Pro plan from Stripe, never from divergent env display values."""
+async def _authoritative_pro_plan(*, price_id: str, expected_interval: str) -> BillingPlanRead:
+    """Build a Pro plan card from Stripe, never from divergent env display values."""
     try:
-        price = await stripe_svc.retrieve_price(settings.stripe_pro_price_id)
+        price = await stripe_svc.retrieve_price(price_id)
     except Exception as exc:
         logger.exception(
             "stripe_price_retrieve_failed", extra={"exception_type": type(exc).__name__}
         )
         raise HTTPException(502, "Billing plans are temporarily unavailable.") from exc
-    if not _pro_price_is_valid(price):
-        logger.error("stripe_price_invalid", extra={"price_id": settings.stripe_pro_price_id})
+    if not _pro_price_is_valid(price, expected_id=price_id, expected_interval=expected_interval):
+        logger.error("stripe_price_invalid", extra={"price_id": price_id})
         raise HTTPException(502, "The configured Pro price is not usable.")
+    label = "Pro (yearly)" if expected_interval == "year" else "Pro"
     return BillingPlanRead(
         code="pro",
-        name="Pro",
+        name=label,
         price_cents=int(price["unit_amount"]),
         currency=str(price["currency"]).upper(),
-        interval=price["recurring"]["interval"],
+        interval=expected_interval,  # type: ignore[arg-type]
         features=_PRO_FEATURES,
     )
 
@@ -209,21 +263,44 @@ async def get_plans() -> BillingPlansResponse:
     if not settings.stripe_configured:
         # Billing is wholly disabled: serve an honest env-based fallback catalog.
         currency = settings.stripe_currency
-        pro = BillingPlanRead(
-            code="pro",
-            name="Pro",
-            price_cents=settings.stripe_pro_price_cents,
-            currency=currency,
-            interval="month",
-            features=_PRO_FEATURES,
-        )
+        plans = [
+            _free_plan(currency),
+            BillingPlanRead(
+                code="pro",
+                name="Pro",
+                price_cents=settings.stripe_pro_price_cents,
+                currency=currency,
+                interval="month",
+                features=_PRO_FEATURES,
+            ),
+        ]
+        if settings.stripe_pro_yearly_price_id:
+            # Fallback display only; real yearly amount comes from Stripe when configured.
+            plans.append(
+                BillingPlanRead(
+                    code="pro",
+                    name="Pro (yearly)",
+                    price_cents=12_000,
+                    currency=currency,
+                    interval="year",
+                    features=_PRO_FEATURES,
+                )
+            )
     else:
-        pro = await _authoritative_pro_plan()
-        currency = pro.currency
+        monthly = await _authoritative_pro_plan(
+            price_id=settings.stripe_pro_price_id, expected_interval="month"
+        )
+        currency = monthly.currency
+        plans = [_free_plan(currency), monthly]
+        if settings.stripe_pro_yearly_price_id:
+            yearly = await _authoritative_pro_plan(
+                price_id=settings.stripe_pro_yearly_price_id, expected_interval="year"
+            )
+            plans.append(yearly)
     return BillingPlansResponse(
         configured=settings.stripe_configured,
         enforcement_enabled=settings.billing_enforcement_enabled,
-        plans=[_free_plan(currency), pro],
+        plans=plans,
     )
 
 
@@ -233,6 +310,81 @@ async def get_billing_status(
     db: AsyncSession = Depends(get_db),
 ) -> BillingStatusRead:
     return _status_response(await _get_subscription(db, current_user.id))
+
+
+@router.get("/usage", response_model=UsageStatusRead)
+async def get_usage_status(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UsageStatusRead:
+    snap = await get_usage_snapshot(db, current_user.id)
+    return UsageStatusRead(
+        pro_entitled=snap.pro_entitled,
+        period_start=snap.period_start,
+        period_end=snap.period_end,
+        ai_tokens_included=snap.ai_tokens_included,
+        ai_tokens_used=snap.ai_tokens_used,
+        ai_tokens_pack_remaining=snap.ai_tokens_pack_remaining,
+        ai_tokens_remaining=snap.ai_tokens_remaining,
+        ai_usage_ratio=snap.ai_usage_ratio,
+        voice_seconds_included=snap.voice_seconds_included,
+        voice_seconds_used=snap.voice_seconds_used,
+        voice_seconds_pack_remaining=snap.voice_seconds_pack_remaining,
+        voice_seconds_remaining=snap.voice_seconds_remaining,
+        voice_usage_ratio=snap.voice_usage_ratio,
+        packs_frozen=snap.packs_frozen,
+        ai_pack_configured=settings.ai_pack_configured,
+        voice_pack_configured=settings.voice_pack_configured,
+    )
+
+
+@router.post("/pack-checkout-session", response_model=BillingSessionResponse)
+async def create_pack_checkout_session(
+    body: PackCheckoutRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BillingSessionResponse:
+    """One-time Pro-only usage top-up. Pack balance rolls until used; freezes without Pro."""
+    _require_stripe()
+    row = await _get_or_create_subscription(db, current_user.id)
+    if not is_pro_entitled(row):
+        raise HTTPException(402, "Usage top-ups are available only with an active Pro plan.")
+    if body.pack == PACK_AI:
+        if not settings.ai_pack_configured:
+            raise HTTPException(503, "AI top-up packs are not configured yet.")
+        price_id = settings.stripe_ai_pack_price_id
+    elif body.pack == PACK_VOICE:
+        if not settings.voice_pack_configured:
+            raise HTTPException(503, "Voice top-up packs are not configured yet.")
+        price_id = settings.stripe_voice_pack_price_id
+    else:
+        raise HTTPException(422, "Unknown pack type.")
+
+    if not row.stripe_customer_id:
+        row.stripe_customer_id = await stripe_svc.create_customer(
+            email=current_user.email,
+            user_id=current_user.id,
+            idempotency_key=f"customer-create:{current_user.id}",
+        )
+        await db.commit()
+
+    expires_at = int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp())
+    try:
+        session = await stripe_svc.create_checkout_session(
+            customer_id=row.stripe_customer_id,
+            user_id=current_user.id,
+            price_id=price_id,
+            success_url=f"{settings.frontend_url}/billing?pack=success",
+            cancel_url=f"{settings.frontend_url}/billing?pack=cancelled",
+            idempotency_key=f"pack:{body.pack}:{current_user.id}:{uuid.uuid4().hex[:12]}",
+            expires_at=expires_at,
+            mode="payment",
+            metadata={"user_id": current_user.id, "pack_kind": body.pack},
+        )
+    except Exception as exc:
+        logger.exception("stripe_pack_checkout_failed", extra={"exception_type": type(exc).__name__})
+        raise HTTPException(502, "Billing provider is unavailable. Please try again.") from exc
+    return BillingSessionResponse(url=_validated_checkout_url(session.get("url")))
 
 
 async def _reconcile_existing_subscriptions(
@@ -287,7 +439,9 @@ async def _reconcile_existing_subscriptions(
     return True
 
 
-async def _reuse_open_checkout_session(row: Subscription, user_id: str) -> dict | None:
+async def _reuse_open_checkout_session(
+    row: Subscription, user_id: str, *, price_id: str
+) -> dict | None:
     """Return an existing open Checkout session to reuse, or None.
 
     Reusing the still-open session prevents minting a second one after the local
@@ -302,7 +456,7 @@ async def _reuse_open_checkout_session(row: Subscription, user_id: str) -> dict 
             continue
         if (session.get("metadata") or {}).get("user_id") != user_id:
             continue
-        if not _session_targets_configured_price(session):
+        if not _session_targets_configured_price(session, price_id=price_id):
             continue
         if not session.get("url"):
             continue
@@ -320,10 +474,17 @@ def _persist_open_session(row: Subscription, session: dict) -> None:
 
 @router.post("/checkout-session", response_model=BillingSessionResponse)
 async def create_checkout_session(
+    body: CheckoutSessionRequest = CheckoutSessionRequest(),
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> BillingSessionResponse:
     _require_stripe()
+    interval = body.interval or "month"
+    try:
+        price_id = settings.pro_price_id_for_interval(interval)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
     # The row is locked FOR UPDATE, serializing all of this tenant's Checkout
     # attempts so reconciliation and session reuse cannot race each other.
     row = await _get_or_create_subscription(db, current_user.id)
@@ -342,36 +503,58 @@ async def create_checkout_session(
         except HTTPException:
             raise
         except Exception as exc:
-            await db.rollback()
-            logger.exception("stripe_reconcile_failed", extra={"exception_type": type(exc).__name__})
-            raise HTTPException(502, "Billing provider is unavailable. Please try again.") from exc
-        if blocked:
-            # Persist the reconciled state, then direct the tenant to the portal.
-            await db.commit()
-            raise HTTPException(409, "A subscription already exists. Manage it in billing.")
+            if _is_missing_stripe_customer_error(exc):
+                _clear_stale_stripe_customer(row)
+                await db.commit()
+                # Re-lock after commit so the create path still serializes.
+                row = await _get_or_create_subscription(db, current_user.id)
+            else:
+                await db.rollback()
+                logger.exception(
+                    "stripe_reconcile_failed", extra={"exception_type": type(exc).__name__}
+                )
+                raise HTTPException(502, "Billing provider is unavailable. Please try again.") from exc
+        else:
+            if blocked:
+                # Persist the reconciled state, then direct the tenant to the portal.
+                await db.commit()
+                raise HTTPException(409, "A subscription already exists. Manage it in billing.")
 
-        try:
-            existing = await _reuse_open_checkout_session(row, current_user.id)
-        except Exception as exc:
-            await db.rollback()
-            logger.exception(
-                "stripe_open_session_lookup_failed", extra={"exception_type": type(exc).__name__}
-            )
-            raise HTTPException(502, "Billing provider is unavailable. Please try again.") from exc
-        if existing is not None:
-            url = _validated_checkout_url(existing.get("url"))
-            _persist_open_session(row, existing)
-            await db.commit()
-            return BillingSessionResponse(url=url)
+            try:
+                existing = await _reuse_open_checkout_session(
+                    row, current_user.id, price_id=price_id
+                )
+            except Exception as exc:
+                if _is_missing_stripe_customer_error(exc):
+                    _clear_stale_stripe_customer(row)
+                    await db.commit()
+                    row = await _get_or_create_subscription(db, current_user.id)
+                else:
+                    await db.rollback()
+                    logger.exception(
+                        "stripe_open_session_lookup_failed",
+                        extra={"exception_type": type(exc).__name__},
+                    )
+                    raise HTTPException(
+                        502, "Billing provider is unavailable. Please try again."
+                    ) from exc
+            else:
+                if existing is not None:
+                    url = _validated_checkout_url(existing.get("url"))
+                    _persist_open_session(row, existing)
+                    await db.commit()
+                    return BillingSessionResponse(url=url)
 
     try:
         if not row.stripe_customer_id:
+            # Use a recover-safe key: stable create for first time, unique when
+            # replacing a deleted Stripe customer so idempotency cannot revive
+            # a dead cus_ id from Stripe's 24h idempotency cache.
+            recover_token = uuid.uuid4().hex[:12]
             row.stripe_customer_id = await stripe_svc.create_customer(
                 email=current_user.email,
                 user_id=current_user.id,
-                # Stable per user: the customer is created at most once, so a
-                # retried request reuses the same provider resource.
-                idempotency_key=f"customer-create:{current_user.id}",
+                idempotency_key=f"customer-create:{current_user.id}:{recover_token}",
             )
         checkout_key = _checkout_idempotency_key(row)
         # Durably persist the customer mapping and idempotency key BEFORE the
@@ -392,11 +575,13 @@ async def create_checkout_session(
         session = await stripe_svc.create_checkout_session(
             customer_id=row.stripe_customer_id,
             user_id=current_user.id,
-            price_id=settings.stripe_pro_price_id,
+            price_id=price_id,
             success_url=f"{settings.frontend_url}/billing?checkout=success",
             cancel_url=f"{settings.frontend_url}/pricing?checkout=cancelled",
-            idempotency_key=f"checkout:{checkout_key}",
+            # Include interval so monthly/yearly retries never collide.
+            idempotency_key=f"checkout:{interval}:{checkout_key}",
             expires_at=expires_at,
+            metadata={"user_id": current_user.id, "interval": interval},
         )
     except Exception as exc:
         logger.exception("stripe_checkout_session_failed", extra={"exception_type": type(exc).__name__})
@@ -450,12 +635,11 @@ def _price_id(subscription: dict) -> str | None:
 
 
 def _has_single_configured_price(snapshot: dict) -> bool:
-    """True only when the subscription carries exactly one item on the exact
-    configured Pro price. Multiple items or any other price never grant Pro."""
+    """True only when the subscription carries exactly one item on a configured Pro price."""
     items = (snapshot.get("items") or {}).get("data") or []
     if len(items) != 1:
         return False
-    return (items[0].get("price") or {}).get("id") == settings.stripe_pro_price_id
+    return (items[0].get("price") or {}).get("id") in settings.configured_pro_price_ids
 
 
 def _snapshot_matches_owner(
@@ -486,6 +670,25 @@ def _supersede_current_subscription(row: Subscription, replacement_id: str) -> N
     row.checkout_session_expires_at = None
 
 
+def _subscription_period_end(snapshot: dict) -> int | None:
+    """Stripe API 2025+ may put period end on items; support both shapes."""
+    top = snapshot.get("current_period_end")
+    if top is not None:
+        try:
+            return int(top)
+        except (TypeError, ValueError):
+            pass
+    items = (snapshot.get("items") or {}).get("data") or []
+    if items:
+        item_end = items[0].get("current_period_end")
+        if item_end is not None:
+            try:
+                return int(item_end)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def _apply_snapshot_to_row(
     row: Subscription,
     snapshot: dict,
@@ -504,9 +707,9 @@ def _apply_snapshot_to_row(
     price_id = _price_id(snapshot)
     if price_id:
         row.stripe_price_id = price_id
-    period_end = snapshot.get("current_period_end")
+    period_end = _subscription_period_end(snapshot)
     row.current_period_end = (
-        datetime.fromtimestamp(int(period_end), tz=timezone.utc) if period_end else None
+        datetime.fromtimestamp(period_end, tz=timezone.utc) if period_end else None
     )
     row.cancel_at_period_end = bool(snapshot.get("cancel_at_period_end", False))
     if event_created_at is not None:
@@ -699,15 +902,51 @@ async def stripe_webhook(
     # State change and the idempotency-ledger insert commit together, so the
     # response is 2xx only after durable acceptance and concurrent duplicates
     # collide on the event_id primary key rather than double-applying.
+    became_pro = False
+    upgrade_user_id: str | None = None
     try:
         if event_type in _SUBSCRIPTION_EVENTS:
             subscription = event.get("data", {}).get("object", {})
+            customer_id = subscription.get("customer")
+            subscription_id = subscription.get("id")
+            was_pro = False
+            mapped_user_id: str | None = None
+            if customer_id or subscription_id:
+                prior = (
+                    await db.execute(
+                        select(Subscription).where(
+                            or_(
+                                Subscription.stripe_customer_id == str(customer_id or ""),
+                                Subscription.stripe_subscription_id == str(subscription_id or ""),
+                            )
+                        )
+                    )
+                ).scalars().all()
+                if len(prior) == 1:
+                    was_pro = is_pro_entitled(prior[0])
+                    mapped_user_id = prior[0].user_id
+                    # Expire so the locked re-load inside _apply_subscription_event
+                    # is authoritative (avoids stale identity-map snapshots).
+                    db.expire(prior[0])
             await _apply_subscription_event(
                 db,
                 event_type=event_type,
                 event_created_at=event_created_at,
                 subscription=subscription,
             )
+            if mapped_user_id:
+                after = (
+                    await db.execute(
+                        select(Subscription).where(Subscription.user_id == mapped_user_id)
+                    )
+                ).scalar_one_or_none()
+                if (not was_pro) and is_pro_entitled(after):
+                    became_pro = True
+                    upgrade_user_id = mapped_user_id
+        elif event_type == "checkout.session.completed":
+            session = event.get("data", {}).get("object", {}) or {}
+            if session.get("mode") == "payment":
+                await _apply_pack_checkout_completed(db, session)
         db.add(
             StripeWebhookEvent(
                 event_id=event_id,
@@ -720,8 +959,6 @@ async def stripe_webhook(
         await db.rollback()
         return {"received": True, "duplicate": True}
     except _RetryableWebhookError as exc:
-        # Nothing was committed and no ledger row claimed; ask Stripe to redeliver
-        # rather than durably acknowledging an event we could not yet apply.
         await db.rollback()
         logger.warning("stripe_webhook_retry_requested", extra={"reason": str(exc)})
         raise HTTPException(503, "Webhook could not be processed yet; please retry.") from exc
@@ -729,14 +966,53 @@ async def stripe_webhook(
         await db.rollback()
         raise
     except Exception as exc:
-        # Nothing was committed; surface a retryable error so Stripe redelivers.
         await db.rollback()
         logger.exception(
             "stripe_webhook_processing_failed", extra={"exception_type": type(exc).__name__}
         )
         raise HTTPException(502, "Webhook processing failed.") from exc
 
+    if became_pro and upgrade_user_id and hasattr(request.app.state, "vector_store"):
+        try:
+            from app.services.rag_backfill import backfill_embeddings_for_user
+
+            await backfill_embeddings_for_user(
+                db,
+                user_id=upgrade_user_id,
+                vector_store=request.app.state.vector_store,
+            )
+        except Exception as exc:
+            logger.warning(
+                "pro_upgrade_backfill_failed",
+                extra={"exception_type": type(exc).__name__},
+            )
+
     return {"received": True, "duplicate": False}
+
+
+async def _apply_pack_checkout_completed(db: AsyncSession, session: dict) -> None:
+    metadata = session.get("metadata") or {}
+    user_id = metadata.get("user_id") or session.get("client_reference_id")
+    pack_kind = metadata.get("pack_kind")
+    session_id = session.get("id")
+    if not user_id or not pack_kind or not session_id:
+        logger.warning("stripe_pack_checkout_missing_fields")
+        return
+    if pack_kind not in {PACK_AI, PACK_VOICE}:
+        logger.warning("stripe_pack_checkout_unknown_kind", extra={"pack_kind": pack_kind})
+        return
+    row = await _get_subscription(db, str(user_id))
+    if not is_pro_entitled(row):
+        # Still credit the balance so it freezes until they regain Pro.
+        logger.info("stripe_pack_credited_while_not_pro", extra={"user_id": user_id})
+    payment_intent = session.get("payment_intent")
+    await credit_pack_from_checkout(
+        db,
+        user_id=str(user_id),
+        pack_kind=str(pack_kind),
+        checkout_session_id=str(session_id),
+        payment_intent_id=str(payment_intent) if payment_intent else None,
+    )
 
 
 async def require_pro_entitlement(
