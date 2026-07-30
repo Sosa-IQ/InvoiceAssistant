@@ -16,8 +16,8 @@ const PAYMENT_TERMS = ["Due on receipt", "Net 7", "Net 15", "Net 30", "Net 45", 
 
 function BrandMark() {
   return (
-    <span aria-hidden="true" className="grid h-10 w-10 place-items-center rounded-[14px] bg-[#ff6b55] text-base font-black text-white shadow-sm">
-      IA
+    <span aria-hidden="true" className="grid h-10 w-10 place-items-center rounded-[14px] bg-[#ff6b55] text-sm font-black text-white">
+      C
     </span>
   )
 }
@@ -69,7 +69,7 @@ function SetupForm({ settings }: { settings: BusinessSettings }) {
         <header className="mb-8 flex items-center gap-3">
           <BrandMark />
           <div>
-            <p className="text-sm font-bold">Invoice Assistant</p>
+            <p className="text-sm font-bold">Cuenvia</p>
             <p className="text-xs text-[#557067]">A few simple details, then you are ready.</p>
           </div>
         </header>

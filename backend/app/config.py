@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
     smtp_from_email: str = ""
-    smtp_from_name: str = "Invoice Assistant"
+    smtp_from_name: str = "Cuenvia"
     app_environment: str = "development"
     log_level: str = "INFO"
     sentry_dsn: str = ""

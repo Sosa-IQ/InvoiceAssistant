@@ -923,7 +923,7 @@ async def send_invoice(
     business_name = (
         body.from_display_name
         or (invoice.from_.name or "").strip()
-        or "Invoice Assistant"
+        or "Cuenvia"
     )
     reply_to_email = (
         body.reply_to_email

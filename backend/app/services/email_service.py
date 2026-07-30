@@ -37,7 +37,7 @@ class EmailService:
         message_id: str | None = None,
     ) -> tuple[EmailMessage, str]:
         msg = EmailMessage()
-        sender_name = (from_display_name or settings.smtp_from_name or "Invoice Assistant").strip() or "Invoice Assistant"
+        sender_name = (from_display_name or settings.smtp_from_name or "Cuenvia").strip() or "Cuenvia"
         msg["From"] = formataddr((sender_name, settings.smtp_from_email))
         msg["To"] = recipient_email
         if cc_email:

@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title="Invoice Assistant API",
+    title="Cuenvia API",
     version="0.1.0",
     lifespan=lifespan,
 )

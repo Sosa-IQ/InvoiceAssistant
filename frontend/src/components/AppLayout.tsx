@@ -4,6 +4,7 @@ import { CreditCard, FileText, LogOut, Moon, Package, PlusCircle, Settings, Sun,
 import { toast } from "sonner"
 import { useAuth } from "@/auth/AuthContext"
 import { cn } from "@/lib/utils"
+import { APP_INITIALS, APP_NAME, APP_TAGLINE } from "@/lib/brand"
 
 const MAIN_NAV = [
   { to: "/invoices", icon: FileText, label: "Invoices" },
@@ -35,10 +36,10 @@ function useDarkMode() {
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-[14px] bg-primary text-sm font-black text-primary-foreground shadow-sm">IA</span>
+      <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-[14px] bg-primary text-sm font-black text-primary-foreground shadow-sm">{APP_INITIALS}</span>
       <div className={cn("min-w-0", compact && "hidden min-[360px]:block")}>
-        <p className="truncate text-sm font-black tracking-tight">Invoice Assistant</p>
-        <p className="truncate text-[11px] text-muted-foreground">Simple invoicing</p>
+        <p className="truncate text-sm font-black tracking-tight">{APP_NAME}</p>
+        <p className="truncate text-[11px] text-muted-foreground">{APP_TAGLINE}</p>
       </div>
     </div>
   )

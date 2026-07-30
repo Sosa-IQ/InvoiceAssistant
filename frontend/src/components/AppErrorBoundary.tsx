@@ -28,7 +28,7 @@ export default class AppErrorBoundary extends Component<Props, State> {
     return (
       <main className="grid min-h-dvh place-items-center bg-background px-6 text-foreground">
         <section role="alert" aria-labelledby="app-error-title" className="w-full max-w-md rounded-lg border bg-card p-6 text-center shadow-sm">
-          <h1 id="app-error-title" className="text-xl font-semibold">Invoice Assistant needs a reset</h1>
+          <h1 id="app-error-title" className="text-xl font-semibold">Cuenvia needs a reset</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Your saved invoices are unaffected. Reload the application to continue.
           </p>
