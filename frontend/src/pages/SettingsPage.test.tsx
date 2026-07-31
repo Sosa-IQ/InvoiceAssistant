@@ -9,11 +9,16 @@ vi.mock("@/api/settings", () => ({
   updateSettings: vi.fn(),
 }))
 
+vi.mock("@/api/billing", () => ({
+  getBillingStatus: vi.fn(),
+}))
+
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
 
 import { getSettings, updateSettings } from "@/api/settings"
+import { getBillingStatus } from "@/api/billing"
 import SettingsPage from "./SettingsPage"
 
 function makeSettings(overrides: Partial<BusinessSettings> = {}): BusinessSettings {
@@ -46,6 +51,17 @@ function makeSettings(overrides: Partial<BusinessSettings> = {}): BusinessSettin
 beforeEach(() => {
   vi.mocked(getSettings).mockResolvedValue(makeSettings())
   vi.mocked(updateSettings).mockResolvedValue(makeSettings())
+  vi.mocked(getBillingStatus).mockResolvedValue({
+    plan: "pro",
+    status: "active",
+    stripe_customer_id: "cus_1",
+    stripe_subscription_id: "sub_1",
+    stripe_price_id: "price_1",
+    current_period_end: null,
+    cancel_at_period_end: false,
+    configured: true,
+    enforcement_enabled: false,
+  })
 })
 
 afterEach(() => {

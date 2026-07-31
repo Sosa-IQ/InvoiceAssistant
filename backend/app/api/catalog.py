@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AuthenticatedUser, get_current_user
+from app.api.billing import require_pro_entitlement
 from app.database import get_db
 from app.models.db_models import CatalogItem, InvoiceRecord
 from app.models.schemas import (
@@ -123,11 +124,11 @@ async def create_catalog_item(
 
 @router.post("/recommendations", response_model=list[CatalogRecommendationRead])
 async def recommend_catalog_items(
-    current_user: AuthenticatedUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(require_pro_entitlement),
     db: AsyncSession = Depends(get_db),
 ) -> list[CatalogRecommendationRead]:
     """
-    Recommend catalog items from structured exported invoice data.
+    Recommend catalog items from structured exported invoice data (Pro).
 
     Uploaded PDFs currently store text chunks for RAG, but exported invoices keep
     line items as JSON, which is reliable enough to turn into saveable catalog

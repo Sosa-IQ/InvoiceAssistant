@@ -30,6 +30,8 @@ import {
   deleteCatalogItem,
   recommendCatalogItems,
 } from "@/api/catalog"
+import { ProUpgradeDialog } from "@/components/ProUpgradeDialog"
+import { useProAccess } from "@/hooks/useProAccess"
 import type { CatalogItem, CatalogRecommendation } from "@/types/invoice"
 
 type ItemFormData = Omit<CatalogItem, "id" | "user_id" | "created_at" | "updated_at">
@@ -42,6 +44,8 @@ export default function CatalogPage() {
   const [recommendations, setRecommendations] = useState<CatalogRecommendation[]>([])
   const [savedRecommendations, setSavedRecommendations] = useState<string[]>([])
   const [savingRecommendationKeys, setSavingRecommendationKeys] = useState<string[]>([])
+  const [proUpgradeOpen, setProUpgradeOpen] = useState(false)
+  const { isPro } = useProAccess()
 
   const { data: items = [] } = useQuery<CatalogItem[]>({
     queryKey: ["catalog"],
@@ -133,7 +137,13 @@ export default function CatalogPage() {
         <div className="grid grid-cols-2 gap-2 sm:flex">
           <Button
             variant="outline"
-            onClick={() => recommendMutation.mutate()}
+            onClick={() => {
+              if (!isPro) {
+                setProUpgradeOpen(true)
+                return
+              }
+              recommendMutation.mutate()
+            }}
             disabled={recommendMutation.isPending}
           >
             {recommendMutation.isPending ? (
@@ -291,6 +301,13 @@ export default function CatalogPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ProUpgradeDialog
+        open={proUpgradeOpen}
+        onOpenChange={setProUpgradeOpen}
+        feature="catalog recommendations"
+        description="Pro suggests catalog items from your past invoices so you can save common line items faster."
+      />
     </div>
   )
 }

@@ -13,6 +13,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { EmailInvoiceDialog } from "@/components/EmailInvoiceDialog"
+import { ProUpgradeDialog } from "@/components/ProUpgradeDialog"
+import { useProAccess } from "@/hooks/useProAccess"
 import {
   deleteInvoice,
   listInvoices,
@@ -67,6 +69,8 @@ export default function InvoicesPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null)
   const [sendDialogRecord, setSendDialogRecord] = useState<InvoiceRecord | null>(null)
+  const [proUpgradeOpen, setProUpgradeOpen] = useState(false)
+  const { isPro } = useProAccess()
 
   const { data: records = [], isLoading, isError, refetch } = useQuery<InvoiceRecord[]>({
     queryKey: ["invoices"],
@@ -138,6 +142,10 @@ export default function InvoicesPage() {
   function handleOpenSendDialog(r: InvoiceRecord) {
     if (!canEmail(r)) {
       toast.error("Save this invoice before emailing.")
+      return
+    }
+    if (!isPro) {
+      setProUpgradeOpen(true)
       return
     }
     setSendDialogRecord(r)
@@ -383,6 +391,12 @@ export default function InvoicesPage() {
       </div>
 
       <EmailInvoiceDialog record={sendDialogRecord} onOpenChange={(open) => !open && setSendDialogRecord(null)} />
+      <ProUpgradeDialog
+        open={proUpgradeOpen}
+        onOpenChange={setProUpgradeOpen}
+        feature="email invoices"
+        description="Email PDF invoices to clients from Cuenvia. Included with Pro, along with AI drafting and voice."
+      />
     </div>
   )
 }

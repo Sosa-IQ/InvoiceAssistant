@@ -5,8 +5,10 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { ProLockedPanel } from "@/components/ProLockedPanel"
 import { createInvoiceDraft, generateInvoice } from "@/api/invoices"
 import { transcribeAudio } from "@/api/voice"
+import { useProAccess } from "@/hooks/useProAccess"
 
 const MAX_CHARS = 8000
 const BTN_SIZE = 112 // px — matches w-28 h-28
@@ -14,6 +16,7 @@ const DRAFT_KEY = "invoice_draft"
 
 export default function NewInvoicePage() {
   const navigate = useNavigate()
+  const { isPro, isLoading: proLoading } = useProAccess()
   const [prompt, setPrompt] = useState("")
   const [loading, setLoading] = useState(false)
   const [manualLoading, setManualLoading] = useState(false)
@@ -183,91 +186,106 @@ export default function NewInvoicePage() {
       <div>
         <h1 className="text-3xl font-black tracking-tight">New invoice</h1>
         <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-          Tell us what you are billing for. Type it, say it aloud, or start with a blank invoice.
+          {isPro
+            ? "Tell us what you are billing for. Type it, say it aloud, or start with a blank invoice."
+            : "Create a blank invoice manually on Free. AI drafting and voice are included with Pro."}
         </p>
       </div>
 
-      {/* Mic circle */}
-      <div className="flex flex-col items-center gap-3 rounded-[24px] border bg-card p-6 shadow-sm sm:p-8">
-        <button
-          type="button"
-          onClick={recording ? stopRecording : startRecording}
-          disabled={loading || manualLoading || transcribing}
-          title={recording ? "Click to stop" : "Click to record"}
-          className={[
-            "relative w-28 h-28 rounded-full overflow-hidden",
-            "flex items-center justify-center",
-            "transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
-            recording
-              ? "bg-red-500 hover:bg-red-600 focus-visible:ring-red-500 shadow-lg shadow-red-200"
-              : transcribing
-              ? "bg-muted cursor-not-allowed opacity-60"
-              : "cursor-pointer bg-[#ff6b55] text-white shadow-md hover:bg-[#eb5945] focus-visible:ring-primary",
-          ].join(" ")}
-        >
-          {transcribing ? (
-            <Loader2 className="h-9 w-9 animate-spin text-muted-foreground" />
-          ) : recording ? (
-            <canvas
-              ref={canvasRef}
-              width={BTN_SIZE}
-              height={BTN_SIZE}
-              className="absolute inset-0 pointer-events-none"
+      {!proLoading && isPro ? (
+        <>
+          {/* Mic circle */}
+          <div className="flex flex-col items-center gap-3 rounded-[24px] border bg-card p-6 shadow-sm sm:p-8">
+            <button
+              type="button"
+              onClick={recording ? stopRecording : startRecording}
+              disabled={loading || manualLoading || transcribing}
+              title={recording ? "Click to stop" : "Click to record"}
+              className={[
+                "relative w-28 h-28 rounded-full overflow-hidden",
+                "flex items-center justify-center",
+                "transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+                recording
+                  ? "bg-red-500 hover:bg-red-600 focus-visible:ring-red-500 shadow-lg shadow-red-200"
+                  : transcribing
+                  ? "bg-muted cursor-not-allowed opacity-60"
+                  : "cursor-pointer bg-[#ff6b55] text-white shadow-md hover:bg-[#eb5945] focus-visible:ring-primary",
+              ].join(" ")}
+            >
+              {transcribing ? (
+                <Loader2 className="h-9 w-9 animate-spin text-muted-foreground" />
+              ) : recording ? (
+                <canvas
+                  ref={canvasRef}
+                  width={BTN_SIZE}
+                  height={BTN_SIZE}
+                  className="absolute inset-0 pointer-events-none"
+                />
+              ) : (
+                <Mic className="h-9 w-9 text-white" />
+              )}
+            </button>
+            <p className="text-xs text-muted-foreground h-4">
+              {transcribing
+                ? "Transcribing…"
+                : recording
+                ? "Recording — click to stop"
+                : "Click to record"}
+            </p>
+          </div>
+
+          {/* Prompt textarea */}
+          <div className="space-y-2 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
+            <Label htmlFor="prompt">Invoice Description</Label>
+            <Textarea
+              id="prompt"
+              placeholder={`Examples:\n• 10 hours of consulting at $150/hr for Acme Corp\n• Monthly retainer $2,500 for ABC LLC\n• 3 website pages at $800 each for John Smith`}
+              rows={8}
+              maxLength={MAX_CHARS}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              className="min-h-48 resize-none rounded-xl bg-background/40 text-base leading-6"
             />
-          ) : (
-            <Mic className="h-9 w-9 text-white" />
-          )}
-        </button>
-        <p className="text-xs text-muted-foreground h-4">
-          {transcribing
-            ? "Transcribing…"
-            : recording
-            ? "Recording — click to stop"
-            : "Click to record"}
-        </p>
-      </div>
+            <p className={`text-xs text-right ${prompt.length >= MAX_CHARS ? "text-destructive" : "text-muted-foreground"}`}>
+              {prompt.length} / {MAX_CHARS}
+            </p>
+          </div>
 
-      {/* Prompt textarea */}
-      <div className="space-y-2 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
-        <Label htmlFor="prompt">Invoice Description</Label>
-        <Textarea
-          id="prompt"
-          placeholder={`Examples:\n• 10 hours of consulting at $150/hr for Acme Corp\n• Monthly retainer $2,500 for ABC LLC\n• 3 website pages at $800 each for John Smith`}
-          rows={8}
-          maxLength={MAX_CHARS}
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          className="min-h-48 resize-none rounded-xl bg-background/40 text-base leading-6"
+          <Button
+            onClick={handleGenerate}
+            disabled={!prompt.trim() || loading || manualLoading}
+            className="min-h-12 w-full rounded-xl"
+            size="lg"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Generating…
+              </>
+            ) : (
+              <>
+                <Sparkles className="mr-2 h-4 w-4" />
+                Generate Invoice
+              </>
+            )}
+          </Button>
+        </>
+      ) : !proLoading ? (
+        <ProLockedPanel
+          title="AI drafting and voice"
+          feature="AI drafting and voice"
+          description="Describe the work in plain language or record a quick voice note. Cuenvia fills in a draft you can edit — included with Pro."
         />
-        <p className={`text-xs text-right ${prompt.length >= MAX_CHARS ? "text-destructive" : "text-muted-foreground"}`}>
-          {prompt.length} / {MAX_CHARS}
-        </p>
-      </div>
+      ) : (
+        <div className="rounded-[24px] border bg-card p-6 text-sm text-muted-foreground shadow-sm">Checking plan…</div>
+      )}
 
-      <Button
-        onClick={handleGenerate}
-        disabled={!prompt.trim() || loading || manualLoading}
-        className="min-h-12 w-full rounded-xl"
-        size="lg"
-      >
-        {loading ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Generating…
-          </>
-        ) : (
-          <>
-            <Sparkles className="mr-2 h-4 w-4" />
-            Generate Invoice
-          </>
-        )}
-      </Button>
       <Button
         onClick={handleCreateManually}
         disabled={loading || manualLoading || transcribing}
         className="min-h-12 w-full rounded-xl"
         size="lg"
-        variant="outline"
+        variant={isPro ? "outline" : "default"}
       >
         {manualLoading ? (
           <>

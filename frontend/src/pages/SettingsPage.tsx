@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { ProLockedPanel } from "@/components/ProLockedPanel"
 import { getSettings, updateSettings } from "@/api/settings"
+import { useProAccess } from "@/hooks/useProAccess"
 import type { BusinessSettings } from "@/types/invoice"
 
 type SettingsFormData = Omit<BusinessSettings, "id" | "user_id" | "updated_at" | "onboarding_completed" | "onboarding_completed_at">
@@ -24,6 +26,7 @@ const EMAIL_TEMPLATE_PLACEHOLDERS = [
 
 export default function SettingsPage() {
   const qc = useQueryClient()
+  const { isPro } = useProAccess()
   const { data, isLoading, isError, isFetching, refetch } = useQuery<BusinessSettings>({
     queryKey: ["settings"],
     queryFn: getSettings,
@@ -88,26 +91,34 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        <section className="space-y-4 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
-          <h2 className="text-sm font-black uppercase tracking-[0.12em] text-muted-foreground">Email templates</h2>
-          <p className="text-sm text-muted-foreground">
-            Used to compose new invoice emails. Allowed placeholders:{" "}
-            {EMAIL_TEMPLATE_PLACEHOLDERS.map((placeholder, index) => (
-              <span key={placeholder}>
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">{placeholder}</code>
-                {index < EMAIL_TEMPLATE_PLACEHOLDERS.length - 1 ? ", " : ""}
-              </span>
-            ))}
-          </p>
-          <div className="space-y-1.5">
-            <Label htmlFor="default-email-subject">Default Email Subject</Label>
-            <Input id="default-email-subject" {...register("default_email_subject")} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="default-email-message">Default Email Message</Label>
-            <Textarea id="default-email-message" {...register("default_email_message")} rows={6} className="resize-y" />
-          </div>
-        </section>
+        {isPro ? (
+          <section className="space-y-4 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
+            <h2 className="text-sm font-black uppercase tracking-[0.12em] text-muted-foreground">Email templates</h2>
+            <p className="text-sm text-muted-foreground">
+              Used to compose new invoice emails. Allowed placeholders:{" "}
+              {EMAIL_TEMPLATE_PLACEHOLDERS.map((placeholder, index) => (
+                <span key={placeholder}>
+                  <code className="rounded bg-muted px-1 py-0.5 text-xs">{placeholder}</code>
+                  {index < EMAIL_TEMPLATE_PLACEHOLDERS.length - 1 ? ", " : ""}
+                </span>
+              ))}
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="default-email-subject">Default Email Subject</Label>
+              <Input id="default-email-subject" {...register("default_email_subject")} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="default-email-message">Default Email Message</Label>
+              <Textarea id="default-email-message" {...register("default_email_message")} rows={6} className="resize-y" />
+            </div>
+          </section>
+        ) : (
+          <ProLockedPanel
+            title="Email templates"
+            feature="email templates"
+            description="Customize default invoice email subject and message. Available with Pro because Free does not include email delivery."
+          />
+        )}
 
         <section className="rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
           <div className="flex items-start gap-4">

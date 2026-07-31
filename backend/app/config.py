@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     stripe_pro_price_id: str = ""
     # Optional second Pro price on the same product (yearly). Empty = monthly only.
     stripe_pro_yearly_price_id: str = ""
+    # Optional Stripe Promotion Code id (promo_…) auto-applied on monthly Pro Checkout.
+    # Mutually exclusive with the Checkout "Add promotion code" field when set.
+    # Prefer a monthly-only coupon / promotion code so yearly is not discounted twice.
+    stripe_launch_promotion_code: str = ""
     stripe_pro_price_cents: int = 1200
     stripe_currency: str = "USD"
     stripe_expected_livemode: bool = False
