@@ -13,6 +13,11 @@ vi.mock("@/api/invoices", () => ({
   uploadInvoices: vi.fn(),
 }))
 
+vi.mock("@/api/billing", () => ({
+  getBillingStatus: vi.fn(),
+  createCheckoutSession: vi.fn(),
+}))
+
 vi.mock("@/components/EmailInvoiceDialog", () => ({
   EmailInvoiceDialog: ({ record }: { record: InvoiceRecord | null }) =>
     record ? <div role="dialog">Email history for invoice {record.id}</div> : null,
@@ -21,6 +26,7 @@ vi.mock("@/components/EmailInvoiceDialog", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 import { listInvoices } from "@/api/invoices"
+import { getBillingStatus } from "@/api/billing"
 import InvoicesPage from "./InvoicesPage"
 
 function exportedInvoiceWithoutRecipient(): InvoiceRecord {
@@ -55,6 +61,17 @@ function exportedInvoiceWithoutRecipient(): InvoiceRecord {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(getBillingStatus).mockResolvedValue({
+    plan: "pro",
+    status: "active",
+    stripe_customer_id: "cus_1",
+    stripe_subscription_id: "sub_1",
+    stripe_price_id: "price_1",
+    current_period_end: null,
+    cancel_at_period_end: false,
+    configured: true,
+    enforcement_enabled: false,
+  })
 })
 
 describe("InvoicesPage history actions", () => {

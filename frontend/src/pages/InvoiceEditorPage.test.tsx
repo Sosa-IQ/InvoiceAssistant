@@ -26,6 +26,11 @@ vi.mock("@/api/invoices", () => ({
   downloadInvoicePdf: vi.fn(),
 }))
 
+vi.mock("@/api/billing", () => ({
+  getBillingStatus: vi.fn(),
+  createCheckoutSession: vi.fn(),
+}))
+
 vi.mock("@/api/clients", () => ({
   listClients: vi.fn(),
   createClient: vi.fn(),
@@ -41,6 +46,7 @@ import {
   saveInvoice,
   sendInvoice,
 } from "@/api/invoices"
+import { getBillingStatus } from "@/api/billing"
 import { listClients } from "@/api/clients"
 import InvoiceEditorPage from "./InvoiceEditorPage"
 
@@ -78,6 +84,17 @@ const savedRecord: InvoiceRecord = {
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  vi.mocked(getBillingStatus).mockResolvedValue({
+    plan: "pro",
+    status: "active",
+    stripe_customer_id: "cus_1",
+    stripe_subscription_id: "sub_1",
+    stripe_price_id: "price_1",
+    current_period_end: null,
+    cancel_at_period_end: false,
+    configured: true,
+    enforcement_enabled: false,
+  })
   vi.mocked(listClients).mockResolvedValue([{ id: 1, user_id: "user-1", name: "Acme Corp", client_code: "ACME", email: "client@example.com", phone: null, notes: null, addresses: [], created_at: null, updated_at: null }])
   vi.mocked(saveInvoice).mockResolvedValue(savedRecord)
   vi.mocked(listInvoiceEmails).mockResolvedValue([])

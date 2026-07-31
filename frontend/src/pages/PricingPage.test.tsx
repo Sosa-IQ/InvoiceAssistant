@@ -21,6 +21,7 @@ const plans: BillingPlansResponse = {
   plans: [
     { code: "free", name: "Free", price_cents: 0, currency: "USD", interval: "month", features: ["Create and edit invoices"] },
     { code: "pro", name: "Pro", price_cents: 1200, currency: "USD", interval: "month", features: ["Email invoice delivery", "AI-assisted drafting and edits", "Voice input"] },
+    { code: "pro", name: "Pro (yearly)", price_cents: 12000, currency: "USD", interval: "year", features: ["Email invoice delivery", "AI-assisted drafting and edits", "Voice input"] },
   ],
 }
 
@@ -43,16 +44,26 @@ describe("PricingPage", () => {
   it("renders only the configured existing-feature comparison", async () => {
     renderWithProviders(<Harness />, { initialEntries: ["/pricing"] })
     expect(await screen.findByRole("heading", { name: /simple plans/i })).toBeInTheDocument()
-    expect(screen.getByText("$12")).toBeInTheDocument()
+    expect(screen.getByText("$9")).toBeInTheDocument()
+    expect(screen.getAllByText(/launch promo/i).length).toBeGreaterThan(0)
     expect(screen.getByText("Create and edit invoices")).toBeInTheDocument()
     expect(screen.getByText("AI-assisted drafting and edits")).toBeInTheDocument()
     expect(screen.queryByText(/payment tracking|monthly revenue|overdue/i)).not.toBeInTheDocument()
   })
 
+  it("toggles yearly pricing on a single Pro card", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<Harness />, { initialEntries: ["/pricing"] })
+    await screen.findByText("$9")
+    await user.click(screen.getByRole("button", { name: /yearly/i }))
+    expect(screen.getByText("$120")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /choose pro yearly/i })).toBeInTheDocument()
+  })
+
   it("sends a signed-out visitor to authentication before checkout", async () => {
     const user = userEvent.setup()
     renderWithProviders(<Harness />, { auth: { user: null }, initialEntries: ["/pricing"] })
-    await screen.findByText("$12")
+    await screen.findByText("$9")
     await user.click(screen.getByRole("button", { name: /choose pro monthly/i }))
     expect(await screen.findByText("Sign-in destination")).toBeInTheDocument()
     expect(createCheckoutSession).not.toHaveBeenCalled()
@@ -61,11 +72,20 @@ describe("PricingPage", () => {
   it("creates a server checkout session for a signed-in user", async () => {
     const user = userEvent.setup()
     renderWithProviders(<Harness />, { initialEntries: ["/pricing"] })
-    await screen.findByText("$12")
+    await screen.findByText("$9")
     await user.click(screen.getByRole("button", { name: /choose pro monthly/i }))
     expect(createCheckoutSession).toHaveBeenCalledTimes(1)
     expect(createCheckoutSession).toHaveBeenCalledWith("month")
     expect(redirectToStripe).toHaveBeenCalledWith("https://checkout.stripe.com/test")
+  })
+
+  it("creates yearly checkout when yearly is selected", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<Harness />, { initialEntries: ["/pricing"] })
+    await screen.findByText("$9")
+    await user.click(screen.getByRole("button", { name: /yearly/i }))
+    await user.click(screen.getByRole("button", { name: /choose pro yearly/i }))
+    expect(createCheckoutSession).toHaveBeenCalledWith("year")
   })
 
   it("disables paid checkout when Stripe is not configured", async () => {

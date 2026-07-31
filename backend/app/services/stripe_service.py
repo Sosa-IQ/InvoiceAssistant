@@ -55,6 +55,8 @@ class StripeService:
         expires_at: int,
         mode: str = "subscription",
         metadata: dict | None = None,
+        allow_promotion_codes: bool = True,
+        promotion_code: str | None = None,
     ) -> dict:
         meta = {"user_id": user_id, **(metadata or {})}
         kwargs: dict = {
@@ -71,7 +73,11 @@ class StripeService:
         }
         if mode == "subscription":
             kwargs["subscription_data"] = {"metadata": {"user_id": user_id}}
-            kwargs["allow_promotion_codes"] = True
+            # Stripe forbids combining allow_promotion_codes with discounts.
+            if promotion_code:
+                kwargs["discounts"] = [{"promotion_code": promotion_code}]
+            elif allow_promotion_codes:
+                kwargs["allow_promotion_codes"] = True
         session = await asyncio.to_thread(stripe.checkout.Session.create, **kwargs)
         data = _as_dict(session)
         return {

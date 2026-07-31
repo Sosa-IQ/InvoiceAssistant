@@ -1,5 +1,5 @@
 import { Link, Navigate } from "react-router-dom"
-import { ArrowRight, FileText, Mail, Mic, Shield, Sparkles } from "lucide-react"
+import { ArrowRight, Clock3, FileText, Mail, Mic, Shield, Sparkles } from "lucide-react"
 import { useAuth } from "@/auth/AuthContext"
 import { PublicShell } from "@/components/PublicShell"
 import { Button } from "@/components/ui/button"
@@ -46,6 +46,11 @@ const FEATURES = [
     icon: Shield,
     title: "Your data stays yours",
     body: "Each account is private. We do not sell your invoices or client list.",
+  },
+  {
+    icon: Clock3,
+    title: "Get paid with less admin",
+    body: "Spend time on the work, not wrestling spreadsheets or hunting last month’s PDF.",
   },
 ]
 
@@ -99,7 +104,7 @@ export default function LandingPage() {
           <h2 className="text-2xl font-black tracking-tight sm:text-3xl">Built for real small businesses</h2>
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((feature) => (
-              <article key={feature.title} className="rounded-[24px] border border-border bg-card p-5 shadow-sm">
+              <article key={feature.title} className="h-full rounded-[24px] border border-border bg-card p-5 shadow-sm">
                 <feature.icon className="h-6 w-6 text-primary" aria-hidden />
                 <h3 className="mt-4 text-lg font-black">{feature.title}</h3>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">{feature.body}</p>

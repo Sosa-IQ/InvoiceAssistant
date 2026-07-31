@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom"
 import type { ReactNode } from "react"
-import { APP_NAME, APP_INITIALS, APP_SUPPORT_EMAIL, APP_TAGLINE } from "@/lib/brand"
+import { APP_NAME, APP_INITIALS, APP_TAGLINE } from "@/lib/brand"
 
 export function PublicShell({ children }: { children: ReactNode }) {
   return (
@@ -64,9 +64,6 @@ export function PublicShell({ children }: { children: ReactNode }) {
             <Link to="/contact" className="text-muted-foreground hover:text-foreground">
               Contact
             </Link>
-            <a href={`mailto:${APP_SUPPORT_EMAIL}`} className="text-muted-foreground hover:text-foreground">
-              {APP_SUPPORT_EMAIL}
-            </a>
           </div>
         </div>
       </footer>

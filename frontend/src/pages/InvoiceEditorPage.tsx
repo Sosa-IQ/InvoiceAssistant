@@ -24,6 +24,9 @@ import { getNextInvoiceNumber, reviseInvoice, saveInvoice } from "@/api/invoices
 import { transcribeAudio } from "@/api/voice"
 import { createClient, createClientAddress, listClients } from "@/api/clients"
 import { EmailInvoiceDialog } from "@/components/EmailInvoiceDialog"
+import { ProLockedPanel } from "@/components/ProLockedPanel"
+import { ProUpgradeDialog } from "@/components/ProUpgradeDialog"
+import { useProAccess } from "@/hooks/useProAccess"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -110,6 +113,8 @@ export default function InvoiceEditorPage() {
   const [savedRecord, setSavedRecord] = useState<InvoiceRecord | null>(null)
   const [showEmailPrompt, setShowEmailPrompt] = useState(false)
   const [emailDialogRecord, setEmailDialogRecord] = useState<InvoiceRecord | null>(null)
+  const [proUpgradeOpen, setProUpgradeOpen] = useState(false)
+  const { isPro } = useProAccess()
   const [aiInstruction, setAiInstruction] = useState("")
   const [aiRevising, setAiRevising] = useState(false)
   const [aiRecording, setAiRecording] = useState(false)
@@ -404,6 +409,10 @@ export default function InvoiceEditorPage() {
   function openEmailDialog() {
     if (!savedRecord) return
     setShowEmailPrompt(false)
+    if (!isPro) {
+      setProUpgradeOpen(true)
+      return
+    }
     setEmailDialogRecord(savedRecord)
   }
 
@@ -441,6 +450,7 @@ export default function InvoiceEditorPage() {
 
       <form className="space-y-6" onSubmit={handleSubmit(onSave)}>
 
+        {isPro ? (
         <section className="rounded-[24px] border border-border bg-card p-4 shadow-sm sm:p-5">
           <Label htmlFor="ai-revise" className="text-foreground">
             Update with AI
@@ -494,6 +504,13 @@ export default function InvoiceEditorPage() {
             </Button>
           </div>
         </section>
+        ) : (
+          <ProLockedPanel
+            title="Update with AI"
+            feature="AI revise and voice"
+            description="Describe changes in plain language or by voice. Pro updates this draft for you while you stay in control of the final invoice."
+          />
+        )}
 
         {/* Header info */}
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -734,14 +751,24 @@ export default function InvoiceEditorPage() {
       <Dialog open={showEmailPrompt} onOpenChange={(open) => { if (!open) skipEmail() }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Email this invoice now?</DialogTitle>
+            <DialogTitle>{isPro ? "Email this invoice now?" : "Invoice saved"}</DialogTitle>
             <DialogDescription>
-              The invoice is saved. You can review the message, preview the PDF, and send it now.
+              {isPro
+                ? "The invoice is saved. You can review the message, preview the PDF, and send it now."
+                : "Your invoice is saved. Email delivery is a Pro feature — upgrade to send the PDF from Cuenvia."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={skipEmail}>Not now</Button>
-            <Button type="button" onClick={openEmailDialog}>Email Invoice</Button>
+            <Button type="button" variant="outline" onClick={skipEmail}>
+              {isPro ? "Not now" : "Done"}
+            </Button>
+            {isPro ? (
+              <Button type="button" onClick={openEmailDialog}>Email Invoice</Button>
+            ) : (
+              <Button type="button" onClick={() => { setShowEmailPrompt(false); setProUpgradeOpen(true) }}>
+                Unlock email with Pro
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -754,6 +781,15 @@ export default function InvoiceEditorPage() {
             navigate("/invoices")
           }
         }}
+      />
+      <ProUpgradeDialog
+        open={proUpgradeOpen}
+        onOpenChange={(open) => {
+          setProUpgradeOpen(open)
+          if (!open) navigate("/invoices")
+        }}
+        feature="email invoices"
+        description="Email PDF invoices to clients from Cuenvia. Included with Pro, along with AI drafting and voice."
       />
     </div>
   )

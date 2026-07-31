@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { ArrowRight, Check, Loader2 } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
@@ -6,6 +7,10 @@ import { createCheckoutSession, getBillingPlans, type BillingPlan } from "@/api/
 import { useAuth } from "@/auth/AuthContext"
 import { Button } from "@/components/ui/button"
 import PageLoading from "@/components/PageLoading"
+import {
+  LAUNCH_PROMO_BLURB,
+  LAUNCH_PROMO_SHORT,
+} from "@/lib/brand"
 import { redirectToStripe } from "@/lib/externalNavigation"
 
 function formatPrice(plan: BillingPlan) {
@@ -20,6 +25,7 @@ function formatPrice(plan: BillingPlan) {
 export default function PricingPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [proInterval, setProInterval] = useState<"month" | "year">("month")
   const plansQuery = useQuery({ queryKey: ["billing", "plans"], queryFn: getBillingPlans })
   const checkout = useMutation({
     mutationFn: (interval: "month" | "year") => createCheckoutSession(interval),
@@ -32,6 +38,15 @@ export default function PricingPage() {
     },
     onError: () => toast.error("Checkout could not be started. Please try again."),
   })
+
+  const { freePlan, proMonthly, proYearly } = useMemo(() => {
+    const list = plansQuery.data?.plans ?? []
+    return {
+      freePlan: list.find((p) => p.code === "free") ?? null,
+      proMonthly: list.find((p) => p.code === "pro" && p.interval === "month") ?? null,
+      proYearly: list.find((p) => p.code === "pro" && p.interval === "year") ?? null,
+    }
+  }, [plansQuery.data])
 
   if (plansQuery.isPending) return <PageLoading />
   if (plansQuery.isError) {
@@ -46,18 +61,22 @@ export default function PricingPage() {
     )
   }
 
-  const { configured, plans } = plansQuery.data
+  const { configured } = plansQuery.data
+  const hasYearly = Boolean(proYearly)
+  const selectedPro = proInterval === "year" && proYearly ? proYearly : proMonthly
+  const proFeatures = selectedPro?.features ?? proMonthly?.features ?? []
 
-  function choose(plan: BillingPlan) {
-    if (plan.code === "free") {
-      navigate(user ? "/invoices" : "/auth")
-      return
-    }
+  function chooseFree() {
+    navigate(user ? "/invoices" : "/auth")
+  }
+
+  function choosePro() {
     if (!user) {
       navigate("/auth", { state: { from: { pathname: "/pricing" } } })
       return
     }
-    checkout.mutate(plan.interval === "year" ? "year" : "month")
+    const interval = proInterval === "year" && hasYearly ? "year" : "month"
+    checkout.mutate(interval)
   }
 
   return (
@@ -84,9 +103,13 @@ export default function PricingPage() {
           <p className="text-sm font-black uppercase tracking-[0.16em] text-[#e45441]">Pricing</p>
           <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Simple plans. No mystery.</h1>
           <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-[#557067]">
-            Free covers manual invoicing and PDFs. Pro adds email, AI drafting and edits, and voice —
-            $12/month or $120/year, with a launch promo of $9/month for the first 3 months when available.
+            Free covers manual invoicing and PDFs. Pro adds email, AI drafting and edits, and voice.
           </p>
+        </div>
+
+        <div className="mx-auto mt-8 max-w-xl rounded-[24px] border border-[#9dbb63] bg-[#eff8d8] px-5 py-4 text-center shadow-sm">
+          <p className="text-sm font-black text-[#274b31]">{LAUNCH_PROMO_SHORT}</p>
+          <p className="mt-1 text-sm leading-6 text-[#31533f]">{LAUNCH_PROMO_BLURB}</p>
         </div>
 
         {!configured && (
@@ -95,49 +118,137 @@ export default function PricingPage() {
           </p>
         )}
 
-        <div className={`mt-10 grid gap-5 ${plans.length > 2 ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
-          {plans.map((plan) => {
-            const isPro = plan.code === "pro"
-            return (
-              <section key={`${plan.code}-${plan.interval}`} className={`flex min-w-0 flex-col rounded-[28px] border p-6 shadow-[0_16px_45px_rgba(24,58,50,0.07)] sm:p-8 ${isPro ? "border-[#9dbb63] bg-[#eff8d8]" : "border-[#ded8cd] bg-[#fffdf8]"}`}>
-                <div>
-                  <p className="text-sm font-black uppercase tracking-[0.14em] text-[#557067]">{plan.name}</p>
-                  <p className="mt-3 flex items-end gap-2">
-                    <span className="text-5xl font-black tracking-tight">{formatPrice(plan)}</span>
-                    <span className="pb-1 text-sm text-[#557067]">/{plan.interval === "year" ? "year" : "month"}</span>
-                  </p>
-                  {isPro && plan.interval === "year" && (
-                    <p className="mt-2 text-sm font-semibold text-[#31533f]">Best value — 2 months free vs monthly</p>
-                  )}
-                  {isPro && plan.interval === "month" && (
-                    <p className="mt-2 text-sm text-[#557067]">Launch promo codes apply at checkout when available</p>
+        <div className="mt-10 grid gap-5 md:grid-cols-2">
+          {freePlan && (
+            <section className="flex min-w-0 flex-col rounded-[28px] border border-[#ded8cd] bg-[#fffdf8] p-6 shadow-[0_16px_45px_rgba(24,58,50,0.07)] sm:p-8">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.14em] text-[#557067]">{freePlan.name}</p>
+                <p className="mt-3 flex items-end gap-2">
+                  <span className="text-5xl font-black tracking-tight">{formatPrice(freePlan)}</span>
+                  <span className="pb-1 text-sm text-[#557067]">/month</span>
+                </p>
+                <p className="mt-2 text-sm text-[#557067]">No card required</p>
+              </div>
+              <ul className="mt-7 flex-1 space-y-3">
+                {freePlan.features.map((feature) => (
+                  <li key={feature} className="flex items-start gap-3 text-sm leading-6">
+                    <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#b8dc72] text-[#183a32]">
+                      <Check className="h-3.5 w-3.5" />
+                    </span>
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+              <Button
+                type="button"
+                onClick={chooseFree}
+                className="mt-8 min-h-12 w-full rounded-xl bg-[#ff6b55] font-black text-white hover:bg-[#eb5945]"
+              >
+                Start with Free
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </section>
+          )}
+
+          {proMonthly && (
+            <section className="flex min-w-0 flex-col rounded-[28px] border border-[#9dbb63] bg-[#eff8d8] p-6 shadow-[0_16px_45px_rgba(24,58,50,0.07)] sm:p-8">
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-black uppercase tracking-[0.14em] text-[#557067]">Pro</p>
+                  {hasYearly && (
+                    <div
+                      role="group"
+                      aria-label="Billing interval"
+                      className="inline-flex rounded-full border border-[#9dbb63] bg-[#fffdf8] p-1 shadow-sm"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setProInterval("month")}
+                        className={`min-h-9 rounded-full px-3 text-xs font-black transition ${
+                          proInterval === "month"
+                            ? "bg-[#183a32] text-white"
+                            : "text-[#557067] hover:text-[#183a32]"
+                        }`}
+                      >
+                        Monthly
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProInterval("year")}
+                        className={`relative min-h-9 rounded-full px-3 text-xs font-black transition ${
+                          proInterval === "year"
+                            ? "bg-[#183a32] text-white shadow-sm ring-2 ring-[#ff6b55] ring-offset-2 ring-offset-[#eff8d8]"
+                            : "text-[#31533f] ring-2 ring-[#ff6b55]/70 ring-offset-1 ring-offset-[#fffdf8] hover:text-[#183a32]"
+                        }`}
+                      >
+                        Yearly
+                        <span
+                          className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${
+                            proInterval === "year" ? "bg-white/20 text-white" : "bg-[#ff6b55] text-white"
+                          }`}
+                        >
+                          Save
+                        </span>
+                      </button>
+                    </div>
                   )}
                 </div>
-                <ul className="mt-7 flex-1 space-y-3">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-3 text-sm leading-6">
-                      <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#b8dc72] text-[#183a32]"><Check className="h-3.5 w-3.5" /></span>
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-                <Button
-                  type="button"
-                  disabled={(isPro && !configured) || checkout.isPending}
-                  onClick={() => choose(plan)}
-                  className={`mt-8 min-h-12 w-full rounded-xl font-black ${isPro ? "bg-[#183a32] text-white hover:bg-[#264d43]" : "bg-[#ff6b55] text-white hover:bg-[#eb5945]"}`}
-                >
-                  {checkout.isPending && isPro ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {isPro
-                    ? (configured
-                      ? (plan.interval === "year" ? "Choose Pro yearly" : "Choose Pro monthly")
-                      : "Billing setup required")
-                    : "Start with Free"}
-                  {(!checkout.isPending || !isPro) && <ArrowRight className="h-4 w-4" />}
-                </Button>
-              </section>
-            )
-          })}
+
+                {proInterval === "month" ? (
+                  <>
+                    <p className="mt-3 flex flex-wrap items-end gap-2">
+                      <span className="text-5xl font-black tracking-tight">$9</span>
+                      <span className="pb-1 text-sm text-[#557067]">/month for 3 months</span>
+                    </p>
+                    <p className="mt-1 text-sm text-[#557067]">
+                      Then {formatPrice(proMonthly)}/month.{" "}
+                      <span className="font-semibold text-[#31533f]">{LAUNCH_PROMO_SHORT}</span>
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-3 flex items-end gap-2">
+                      <span className="text-5xl font-black tracking-tight">
+                        {proYearly ? formatPrice(proYearly) : "$120"}
+                      </span>
+                      <span className="pb-1 text-sm text-[#557067]">/year</span>
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-[#31533f]">Best value — 2 months free vs monthly</p>
+                  </>
+                )}
+              </div>
+              <ul className="mt-7 flex-1 space-y-3">
+                {proFeatures.map((feature) => (
+                  <li key={feature} className="flex items-start gap-3 text-sm leading-6">
+                    <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#b8dc72] text-[#183a32]">
+                      <Check className="h-3.5 w-3.5" />
+                    </span>
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+              {proInterval === "month" && (
+                <p className="mt-4 rounded-xl border border-[#9dbb63]/60 bg-[#fffdf8]/80 px-3 py-2 text-xs leading-5 text-[#31533f]">
+                  At Checkout, the launch promo is applied automatically when configured, or enter your promotion code
+                  if shown.
+                </p>
+              )}
+              <Button
+                type="button"
+                disabled={!configured || checkout.isPending || !selectedPro}
+                onClick={choosePro}
+                className="mt-8 min-h-12 w-full rounded-xl bg-[#183a32] font-black text-white hover:bg-[#264d43]"
+              >
+                {checkout.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {configured
+                  ? proInterval === "year" && hasYearly
+                    ? "Choose Pro yearly"
+                    : "Choose Pro monthly"
+                  : "Billing setup required"}
+                {(!checkout.isPending) && <ArrowRight className="h-4 w-4" />}
+              </Button>
+            </section>
+          )}
         </div>
 
         <p className="mt-8 text-center text-xs leading-5 text-[#6d807a]">

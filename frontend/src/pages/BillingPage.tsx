@@ -12,6 +12,7 @@ import {
 import AiUsageCard from "@/components/AiUsageCard"
 import { Button } from "@/components/ui/button"
 import PageLoading from "@/components/PageLoading"
+import { LAUNCH_PROMO_BLURB, LAUNCH_PROMO_SHORT } from "@/lib/brand"
 import { redirectToStripe } from "@/lib/externalNavigation"
 
 export default function BillingPage() {
@@ -66,7 +67,9 @@ export default function BillingPage() {
       <div>
         <p className="text-sm font-black uppercase tracking-[0.14em] text-[#e45441]">Account</p>
         <h1 className="mt-2 text-3xl font-black tracking-tight">Plan and billing</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">See your current plan, AI usage, upgrade, or manage billing securely through Stripe.</p>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+          See your current plan{isPro ? ", AI usage," : ","} upgrade, or manage billing securely through Stripe.
+        </p>
       </div>
 
       {searchParams.get("checkout") === "success" && (
@@ -82,6 +85,13 @@ export default function BillingPage() {
         </div>
       )}
 
+      {!isPro && (
+        <div className="rounded-[24px] border border-[#9dbb63] bg-[#eff8d8] p-4 text-sm text-[#274b31] sm:p-5">
+          <p className="font-black">{LAUNCH_PROMO_SHORT}</p>
+          <p className="mt-1 leading-6 text-[#31533f]">{LAUNCH_PROMO_BLURB}</p>
+        </div>
+      )}
+
       <section className="rounded-[24px] border bg-card p-5 shadow-sm sm:p-7">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">
@@ -94,7 +104,7 @@ export default function BillingPage() {
                   {status.cancel_at_period_end ? "Access ends" : "Current period ends"} {new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(status.current_period_end))}
                 </p>
               )}
-              <p className="mt-2 text-sm text-muted-foreground">Pro is $12/month or $120/year. Launch promo: $9/month for your first 3 months when offered in Checkout.</p>
+              <p className="mt-2 text-sm text-muted-foreground">Pro is $12/month or $120/year.</p>
             </div>
           </div>
 
@@ -121,7 +131,7 @@ export default function BillingPage() {
         )}
       </section>
 
-      <AiUsageCard />
+      {isPro && <AiUsageCard />}
 
       {isPro && status.configured && (
         <section className="rounded-[24px] border bg-card p-5 shadow-sm sm:p-6">
