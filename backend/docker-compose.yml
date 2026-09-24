@@ -1,0 +1,14 @@
+# Optional local/prod helper. On EC2 you can also run the API container alone + Caddy on host.
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - cuenvia_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  cuenvia_data:

@@ -1,0 +1,11 @@
+# Caddy — reverse proxy + automatic HTTPS (Let's Encrypt)
+# Install on the EC2 host, not inside the API container.
+
+{
+	email YOUR_EMAIL@example.com
+}
+
+api.YOUR_DOMAIN.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:8000
+}

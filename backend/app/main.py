@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.database import engine, init_db
+from app.config import settings as app_settings
 from app.observability import configure_logging, configure_sentry
 from app.services.openai_service import OpenAIService
 from app.services.supabase_service import SupabaseService
@@ -85,10 +86,22 @@ async def request_observability(request: Request, call_next):
     return response
 
 
+def _cors_allow_origins() -> list[str]:
+    """Browser origins permitted to call the API with credentials."""
+    origins = [app_settings.frontend_url]
+    # Local Vite remains allowed outside strict production so hybrid debugging works.
+    if app_settings.app_environment.strip().lower() not in {"production", "prod"}:
+        for origin in ("http://localhost:5173", "http://127.0.0.1:5173"):
+            if origin not in origins:
+                origins.append(origin)
+    return origins
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):5173",
+    allow_origins=_cors_allow_origins(),
+    # Vercel preview deployments: https://<branch>-<team>.vercel.app
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
