@@ -61,79 +61,39 @@ node scripts/npm-audit-policy.mjs               # full graph threshold: high
 
 **Status:** all findings at the configured thresholds are either blocking or covered by exact, expiring, machine-validated exceptions in `frontend/security/npm-audit-exceptions.json`.
 
-Raw `npm audit` currently reports 10 vulnerability nodes: 3 moderate and 7
-high. The package-node count is larger than the number of root advisories
-because npm reports vulnerable transitive propagation chains separately.
+**Status (2026-09-24):** `npm audit` reports 0 vulnerabilities on both the
+production and full graphs, and `frontend/security/npm-audit-exceptions.json`
+holds no exceptions.
 
 CI runs `scripts/check-rsc-not-used.mjs` plus `scripts/npm-audit-policy.mjs`. The policy consumes npm's JSON schema, recursively validates propagation chains, fails on unrelated findings, and also fails when an exception expires or becomes stale after a fix.
 
-Twenty-one findings were resolved by `npm audit fix`, which stayed inside the
-existing caret ranges — no `package.json` range changed:
+The latest refresh was a lockfile-only `npm update`: every bump stayed inside
+the existing `package.json` ranges. It resolved the advisories that previously
+failed the full-graph gate:
 
 | Package | From | To |
 | --- | --- | --- |
-| `axios` | 1.13.5 | 1.18.1 |
-| `react-router` / `react-router-dom` | 7.13.0 | 7.18.1 |
-| `vite` | 7.3.1 | 7.3.6 |
-| `rollup` | 4.x | 4.62.2 |
+| `react-router` / `react-router-dom` | 7.18.1 | 7.18.4 |
+| `vitest` / `@vitest/mocker` | 4.1.10 | 4.1.11 |
+| `undici` | 7.28.0 | 7.29.1 |
+| `browserslist` | 4.28.1 | 4.29.1 |
+| `fast-uri` | 3.1.4 | 3.1.8 |
+| `ip-address` | 10.2.0 | 10.7.2 |
+| `js-yaml` | 4.3.0 | 4.3.2 |
+| `nanoid` | 3.3.16 | 3.3.19 |
+| `postcss` | 8.5.22 | 8.5.28 |
+| `hono` | 4.12.31 | 4.13.9 |
+| `qs` | 6.15.3 | 6.16.0 |
 
-Transitive fixes came along for `postcss`, `brace-expansion`, `minimatch`,
-`picomatch`, `form-data`, `js-yaml`, `flatted`, `qs`, `follow-redirects`,
-`path-to-regexp`, `fast-uri`, `ajv`, `esbuild`, `body-parser`, `ip-address`
-and `@babel/core`.
+`brace-expansion` / `minimatch` under ESLint moved to patched releases, and
+`@modelcontextprotocol/sdk` now resolves `@hono/node-server` 2.x, which clears
+the dev-only `shadcn` MCP chain.
 
-### Exact exception: React Router RSC APIs (`GHSA-qwww-vcr4-c8h2`)
+That retired both earlier exceptions: `GHSA-qwww-vcr4-c8h2` (React Router RSC
+APIs) and `GHSA-mh99-v99m-4gvg` (ESLint brace-expansion chain). The RSC guard
+still runs in CI as defense in depth.
 
-- **Scope:** production and full dependency graphs.
-- **Expiry:** 2026-10-22.
-- **Why accepted:** the advisory affects unstable React Router Server
-  Components APIs. This application is a browser-only Vite SPA and imports
-  `react-router-dom`; it does not use React Router server/RSC entry points.
-- **Fail-closed proof:** `check-rsc-not-used.mjs` rejects direct, re-exported,
-  dynamic, `require`, namespace, computed, and template-literal RSC access,
-  forbids server/RSC packages, requires `components.json` to keep `rsc=false`,
-  and is itself covered by negative fixtures.
-- **Removal trigger:** remove the exception when npm no longer reports the
-  advisory on the installed production graph, or replace the dependency before
-  the expiry date.
-
-### Exact exception: ESLint brace-expansion chain (`GHSA-mh99-v99m-4gvg`)
-
-- **Scope:** full graph only; it is absent from the production graph.
-- **Expiry:** 2026-08-31.
-- **Why accepted:** the affected `brace-expansion` path is reachable only while
-  running ESLint. ESLint 10 was tested and is currently incompatible with the
-  existing plugin/config chain; forcing it would break the lint gate.
-- **Removal trigger:** move to a compatible ESLint/plugin chain or remove the
-  exception before expiry. Production policy never accepts this advisory.
-
-### Below-threshold exposure: `shadcn` MCP server chain
-
-Three moderate advisories remain, all in one dev-only chain:
-
-```
-shadcn (devDependency) -> @modelcontextprotocol/sdk -> @hono/node-server <2.0.5
-```
-
-Not fixed, because:
-
-- **No non-breaking fix exists.** The patch is in `@hono/node-server` 2.0.5,
-  but `@modelcontextprotocol/sdk` declares `^1.19.9`. Forcing 2.x would push
-  the SDK across a major boundary it does not claim to support — the exact
-  blind override this policy prohibits. `npm audit fix` reports a fix is
-  available but cannot apply one; its only real suggestion is downgrading
-  `shadcn`, which does not remove the chain.
-- **It is not shipped.** `shadcn` is build-time tooling. The app consumes only
-  `shadcn/tailwind.css` (imported by `src/index.css`); no MCP or Hono code
-  appears in `dist/`. Raw `npm audit --omit=dev` reports only the transitive
-  React Router nodes covered by the exact exception above.
-- **The vulnerable code never runs.** The advisories are in an HTTP server
-  started by `shadcn mcp`, which this project does not invoke.
-
-Note that `shadcn` cannot simply be removed: `src/index.css` imports its
-stylesheet, so uninstalling it breaks the build.
-
-The CI gate is calibrated to match this reasoning — production dependencies
-fail the build at moderate, build tooling at high — so this exposure is
-tolerated while a genuine production regression is not. Re-check when
-`@modelcontextprotocol/sdk` moves to `@hono/node-server` 2.x.
+`eslint-plugin-react-hooks` is held at 7.0.1 in the lockfile. 7.1.x adds an
+error-level `react-hooks/set-state-in-effect` rule that the current code
+violates; refactoring those effects is separate work, and the plugin carries
+no advisory.
