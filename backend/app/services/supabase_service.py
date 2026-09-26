@@ -59,3 +59,58 @@ class SupabaseService:
             response = await client.get(url, headers=self._headers())
             response.raise_for_status()
             return response.content
+
+    async def list_object_paths(self, prefix: str, *, max_depth: int = 4) -> list[str]:
+        """Recursively list every object path under ``prefix`` (a folder, no trailing slash)."""
+        paths: list[str] = []
+        page_size = 1000
+        async with httpx.AsyncClient(timeout=30.0) as client:
+
+            async def walk(folder: str, depth: int) -> None:
+                offset = 0
+                while True:
+                    response = await client.post(
+                        f"{self.base_url}/storage/v1/object/list/{self.bucket}",
+                        headers={**self._headers(), "Content-Type": "application/json"},
+                        json={"prefix": folder, "limit": page_size, "offset": offset},
+                    )
+                    response.raise_for_status()
+                    entries = response.json()
+                    for entry in entries:
+                        path = f"{folder}/{entry['name']}"
+                        # Storage reports folders as entries without an id.
+                        if entry.get("id") is None:
+                            if depth < max_depth:
+                                await walk(path, depth + 1)
+                        else:
+                            paths.append(path)
+                    if len(entries) < page_size:
+                        return
+                    offset += page_size
+
+            await walk(prefix, 1)
+        return paths
+
+    async def delete_objects(self, paths: list[str]) -> None:
+        batch_size = 1000
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            for start in range(0, len(paths), batch_size):
+                response = await client.request(
+                    "DELETE",
+                    f"{self.base_url}/storage/v1/object/{self.bucket}",
+                    headers={**self._headers(), "Content-Type": "application/json"},
+                    json={"prefixes": paths[start : start + batch_size]},
+                )
+                response.raise_for_status()
+
+    async def delete_auth_user(self, user_id: str) -> None:
+        """Delete the Supabase Auth user; app tables cascade from auth.users."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.delete(
+                f"{self.base_url}/auth/v1/admin/users/{quote(user_id)}",
+                headers=self._headers(),
+            )
+        if response.status_code == 404:
+            logger.info("auth_user_already_deleted")
+            return
+        response.raise_for_status()

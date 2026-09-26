@@ -693,3 +693,74 @@ async def test_invoice_json_of_one_tenant_never_names_the_other(isolated_api) ->
     blob = json.dumps(listed)
 
     assert "Alice" not in blob, OTHER
+
+
+# ---------------------------------------------------------------------------
+# Account deletion
+# ---------------------------------------------------------------------------
+
+_OWNED_TABLES = (
+    "profiles",
+    "business_settings",
+    "clients",
+    "client_addresses",
+    "catalog_items",
+    "invoice_records",
+    "invoice_embeddings",
+    "invoice_emails",
+)
+
+
+async def test_account_deletion_removes_every_owned_row_and_spares_other_tenant(
+    isolated_api, monkeypatch
+) -> None:
+    request, alice, bob, _harness, url = isolated_api
+    from app.api import auth as auth_api
+    from app.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "supabase_url", "https://project.test")
+    monkeypatch.setattr(app_settings, "supabase_service_role_key", "service-role-for-test")
+
+    listed: list[str] = []
+
+    async def fake_list(prefix: str) -> list[str]:
+        listed.append(prefix)
+        return []
+
+    async def fake_delete_auth_user(user_id: str) -> None:
+        # Stand-in for Supabase's admin API: removing the auth user is what
+        # triggers the cascade in production.
+        conn = await asyncpg.connect(asyncpg_dsn(url))
+        try:
+            await conn.execute("DELETE FROM auth.users WHERE id = $1::uuid", user_id)
+        finally:
+            await conn.close()
+
+    monkeypatch.setattr(auth_api.supabase_svc, "list_object_paths", fake_list)
+    monkeypatch.setattr(auth_api.supabase_svc, "delete_auth_user", fake_delete_auth_user)
+
+    response = await request(alice, "delete", "/api/auth/account", json={"confirm_email": "bob@example.com"})
+    assert response.status_code == 400
+
+    response = await request(alice, "delete", "/api/auth/account", json={"confirm_email": "ALICE@example.com"})
+    assert response.status_code == 204, response.text
+    assert listed == [alice.id]
+
+    conn = await asyncpg.connect(asyncpg_dsn(url))
+    try:
+        for table in _OWNED_TABLES:
+            column = "id" if table == "profiles" else "user_id"
+            alice_rows = await conn.fetchval(
+                f"SELECT count(*) FROM public.{table} WHERE {column} = $1::uuid", alice.id
+            )
+            bob_rows = await conn.fetchval(
+                f"SELECT count(*) FROM public.{table} WHERE {column} = $1::uuid", bob.id
+            )
+            assert alice_rows == 0, f"{table} still has rows for the deleted account"
+            assert bob_rows > 0, f"{table} lost the other tenant's rows"
+    finally:
+        await conn.close()
+
+    response = await request(bob, "get", "/api/invoices")
+    assert response.status_code == 200
+    assert len(response.json()) == 1

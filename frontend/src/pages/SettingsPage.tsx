@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { ProLockedPanel } from "@/components/ProLockedPanel"
+import { DeleteAccountSection } from "@/components/DeleteAccountSection"
 import { getSettings, updateSettings } from "@/api/settings"
 import { useProAccess } from "@/hooks/useProAccess"
 import type { BusinessSettings } from "@/types/invoice"
@@ -132,6 +133,8 @@ export default function SettingsPage() {
         </section>
 
       </form>
+
+      <DeleteAccountSection />
     </div>
   )
 }

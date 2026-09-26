@@ -370,6 +370,10 @@ class AuthMeResponse(BaseModel):
     user: ProfileRead
 
 
+class AccountDeleteRequest(BaseModel):
+    confirm_email: str = Field(min_length=1, max_length=320)
+
+
 class InvoiceEmailRead(BaseModel):
     id: int
     user_id: str

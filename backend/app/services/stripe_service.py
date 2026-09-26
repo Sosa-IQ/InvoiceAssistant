@@ -119,6 +119,14 @@ class StripeService:
         data = _as_dict(result).get("data") or []
         return [_as_dict(item) for item in data]
 
+    async def cancel_subscription(self, subscription_id: str) -> None:
+        """Cancel immediately (not at period end); used when an account is deleted."""
+        await asyncio.to_thread(
+            stripe.Subscription.cancel,
+            subscription_id,
+            api_key=settings.stripe_secret_key,
+        )
+
     async def create_portal_session(self, *, customer_id: str, return_url: str) -> str:
         session = await asyncio.to_thread(
             stripe.billing_portal.Session.create,
