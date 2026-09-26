@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { isSupabaseConfigured, missingSupabaseEnvVars, supabase } from "@/lib/supabase"
 import { useAuth } from "@/auth/AuthContext"
+import { Turnstile } from "@/components/Turnstile"
+import { TURNSTILE_SITE_KEY } from "@/lib/turnstile"
 import { APP_INITIALS, APP_NAME, APP_TAGLINE } from "@/lib/brand"
 
 type AuthFormData = {
@@ -26,6 +28,11 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false)
   // Set after a request that finishes by email (signup confirmation or password reset).
   const [sentTo, setSentTo] = useState<{ email: string; kind: "confirm" | "reset" } | null>(null)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  // Turnstile tokens are single-use; bumping this remounts the widget for a fresh one.
+  const [captchaKey, setCaptchaKey] = useState(0)
+  const captchaRequired = TURNSTILE_SITE_KEY !== ""
+  const captcha = captchaToken ?? undefined
   const { register, handleSubmit } = useForm<AuthFormData>()
   const redirectTo = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/invoices"
 
@@ -44,6 +51,7 @@ export default function AuthPage() {
       if (mode === "forgot") {
         const { error } = await supabase.auth.resetPasswordForEmail(values.email, {
           redirectTo: `${window.location.origin}/reset-password`,
+          captchaToken: captcha,
         })
         if (error) throw error
         // Same message whether or not the address has an account, so the form can't be used to probe emails.
@@ -54,7 +62,7 @@ export default function AuthPage() {
         const { data, error } = await supabase.auth.signUp({
           email: values.email,
           password: values.password,
-          options: { emailRedirectTo: `${window.location.origin}/invoices` },
+          options: { emailRedirectTo: `${window.location.origin}/invoices`, captchaToken: captcha },
         })
         if (error) throw error
         if (!data.session) {
@@ -67,6 +75,7 @@ export default function AuthPage() {
         const { error } = await supabase.auth.signInWithPassword({
           email: values.email,
           password: values.password,
+          options: { captchaToken: captcha },
         })
         if (error) throw error
         toast.success("Signed in.")
@@ -77,6 +86,7 @@ export default function AuthPage() {
       toast.error(message)
     } finally {
       setLoading(false)
+      if (captchaRequired) setCaptchaKey((key) => key + 1)
     }
   }
 
@@ -183,7 +193,8 @@ export default function AuthPage() {
                     <Input id="auth-password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} {...register("password", { required: true, minLength: 8, shouldUnregister: true })} />
                   </div>
                 )}
-                <Button type="submit" className="min-h-12 w-full rounded-xl" disabled={loading}>
+                {captchaRequired && <Turnstile key={captchaKey} onToken={setCaptchaToken} />}
+                <Button type="submit" className="min-h-12 w-full rounded-xl" disabled={loading || (captchaRequired && !captchaToken)}>
                   {loading && <Loader2 aria-hidden="true" className="mr-1.5 h-4 w-4 animate-spin" />}
                   {mode === "signup" ? "Create Account" : mode === "forgot" ? "Send reset link" : "Log In"}
                 </Button>
