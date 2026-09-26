@@ -764,3 +764,39 @@ async def test_account_deletion_removes_every_owned_row_and_spares_other_tenant(
     response = await request(bob, "get", "/api/invoices")
     assert response.status_code == 200
     assert len(response.json()) == 1
+
+
+# ---------------------------------------------------------------------------
+# Local PDF cache (used when Supabase Storage is not configured)
+# ---------------------------------------------------------------------------
+
+async def test_same_invoice_number_keeps_separate_local_pdfs(isolated_api) -> None:
+    """Two tenants whose invoices get the same number must not share a cached PDF."""
+    request, alice, bob, _, _ = isolated_api
+
+    records = {}
+    for tenant, label in ((alice, "Alice"), (bob, "Bob")):
+        # Same client name -> same client code -> same invoice number for both tenants.
+        response = await request(tenant, "post", "/api/clients", json={"name": "Acme Shared"})
+        assert response.status_code == 201, response.text
+        payload = _invoice_payload(tenant, label)
+        payload["to"]["client_id"] = response.json()["id"]
+        payload["to"]["name"] = "Acme Shared"
+        response = await request(tenant, "post", "/api/invoices/export", json=payload)
+        assert response.status_code == 200, response.text
+        listing = (await request(tenant, "get", "/api/invoices")).json()
+        records[label] = next(r for r in listing if r["client_name"] == "Acme Shared")
+
+    assert records["Alice"]["invoice_number"] == records["Bob"]["invoice_number"]
+
+    alice_pdf = await request(alice, "get", f"/api/invoices/{records['Alice']['id']}/download")
+    bob_pdf = await request(bob, "get", f"/api/invoices/{records['Bob']['id']}/download")
+    assert alice_pdf.status_code == bob_pdf.status_code == 200
+    assert alice_pdf.content != bob_pdf.content, "tenants were served the same cached PDF"
+
+    # Deleting Alice's invoice must not remove Bob's cached file.
+    response = await request(alice, "delete", f"/api/invoices/{records['Alice']['id']}")
+    assert response.status_code == 204
+    bob_again = await request(bob, "get", f"/api/invoices/{records['Bob']['id']}/download")
+    assert bob_again.status_code == 200
+    assert bob_again.content == bob_pdf.content

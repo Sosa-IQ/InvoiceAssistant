@@ -12,12 +12,14 @@ from app.database import get_db
 from app.models.db_models import InvoiceRecord, Profile, Subscription
 from app.models.schemas import AccountDeleteRequest, AuthMeResponse, ProfileRead
 from app.services.stripe_service import stripe_service
+from app.services.storage import StorageService
 from app.services.supabase_service import SupabaseService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 supabase_svc = SupabaseService()
+storage = StorageService(supabase_svc)
 
 # Subscriptions in these states can no longer bill, so there is nothing to cancel.
 _FINISHED_SUBSCRIPTION_STATUSES = frozenset({"canceled", "incomplete_expired"})
@@ -51,15 +53,12 @@ async def _cancel_stripe_subscriptions(customer_id: str) -> None:
             await stripe_service.cancel_subscription(str(subscription["id"]))
 
 
-def _remove_local_pdf(file_path: str | None) -> None:
-    """Best-effort removal of a cached PDF, only inside the app's data directory."""
-    if not file_path:
-        return
-    path = Path(file_path).resolve()
-    if not path.is_relative_to(settings.data_dir.resolve()):
+def _remove_local_pdf(user_id: str, file_path: str | None) -> None:
+    """Best-effort removal of a cached PDF, only from the user's own cache folder."""
+    if not storage.is_user_local_path(user_id, file_path):
         return
     try:
-        path.unlink(missing_ok=True)
+        Path(file_path).unlink(missing_ok=True)
     except OSError:
         logger.warning("account_delete_local_pdf_failed")
 
@@ -110,7 +109,7 @@ async def delete_account(
     # Release the session before the cascade runs in Supabase, so no open transaction holds row locks.
     await db.rollback()
     for file_path in file_paths:
-        _remove_local_pdf(file_path)
+        _remove_local_pdf(current_user.id, file_path)
 
     try:
         await supabase_svc.delete_auth_user(current_user.id)

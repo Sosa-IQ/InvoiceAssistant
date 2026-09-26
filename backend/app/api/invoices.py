@@ -790,10 +790,9 @@ async def delete_invoice(
         await vector_store.delete_document(db, doc_id=record.rag_doc_id, user_id=current_user.id)
         logger.info("Removed vectors for doc_id=%s", record.rag_doc_id)
 
-    # Delete the PDF file from disk (best-effort)
-    pdf_path = Path(record.file_path)
-    if pdf_path.exists():
-        pdf_path.unlink()
+    # Delete the cached PDF from disk (best-effort), only from this user's own folder
+    if storage.is_user_local_path(current_user.id, record.file_path):
+        Path(record.file_path).unlink(missing_ok=True)
         logger.info("invoice_pdf_deleted")
 
     await db.delete(record)
