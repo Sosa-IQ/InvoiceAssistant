@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { act, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, vi } from "vitest"
 
@@ -15,6 +15,7 @@ vi.mock("@/api/invoices", () => ({
 
 vi.mock("@/api/billing", () => ({
   getBillingStatus: vi.fn(),
+  getUsageStatus: vi.fn(),
   createCheckoutSession: vi.fn(),
 }))
 
@@ -26,7 +27,7 @@ vi.mock("@/components/EmailInvoiceDialog", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 import { listInvoices } from "@/api/invoices"
-import { getBillingStatus } from "@/api/billing"
+import { getBillingStatus, getUsageStatus } from "@/api/billing"
 import InvoicesPage from "./InvoicesPage"
 
 function exportedInvoiceWithoutRecipient(): InvoiceRecord {
@@ -61,6 +62,10 @@ function exportedInvoiceWithoutRecipient(): InvoiceRecord {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(getUsageStatus).mockResolvedValue({
+    email_monthly_limit: null,
+    emails_sent_this_period: 0,
+  } as Awaited<ReturnType<typeof getUsageStatus>>)
   vi.mocked(getBillingStatus).mockResolvedValue({
     plan: "pro",
     status: "active",
@@ -99,5 +104,47 @@ describe("InvoicesPage history actions", () => {
 
     await waitFor(() => expect(listInvoices).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument())
+  })
+
+  it("lets a Free account email while it has allowance left", async () => {
+    const user = userEvent.setup()
+    vi.mocked(getBillingStatus).mockResolvedValue({
+      plan: "free",
+      status: "free",
+      stripe_customer_id: null,
+      stripe_subscription_id: null,
+      stripe_price_id: null,
+      current_period_end: null,
+      cancel_at_period_end: false,
+      configured: true,
+      enforcement_enabled: true,
+    })
+    vi.mocked(getUsageStatus).mockResolvedValue({
+      email_monthly_limit: 5,
+      emails_sent_this_period: 4,
+    } as Awaited<ReturnType<typeof getUsageStatus>>)
+    vi.mocked(listInvoices).mockResolvedValue([exportedInvoiceWithoutRecipient()])
+    renderWithProviders(<InvoicesPage />)
+
+    await user.click(await screen.findByRole("button", { name: "Email invoice" }))
+
+    expect(screen.getByRole("dialog")).toHaveTextContent("Email history for invoice 42")
+  })
+
+  it("offers Pro once the Free email allowance is used up", async () => {
+    const user = userEvent.setup()
+    vi.mocked(getUsageStatus).mockResolvedValue({
+      email_monthly_limit: 5,
+      emails_sent_this_period: 5,
+    } as Awaited<ReturnType<typeof getUsageStatus>>)
+    vi.mocked(listInvoices).mockResolvedValue([exportedInvoiceWithoutRecipient()])
+    renderWithProviders(<InvoicesPage />)
+
+    const emailButton = await screen.findByRole("button", { name: "Email invoice" })
+    await waitFor(() => expect(getUsageStatus).toHaveBeenCalled())
+    await act(async () => {}) // let the usage query resolve before clicking
+    await user.click(emailButton)
+
+    expect(screen.getByRole("dialog")).toHaveTextContent("used this month's free invoice emails")
   })
 })

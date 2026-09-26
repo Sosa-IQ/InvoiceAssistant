@@ -17,6 +17,24 @@ class StorageService:
         settings.invoices_dir.mkdir(parents=True, exist_ok=True)
         return settings.invoices_dir
 
+    def get_user_dir(self, user_id: str) -> Path:
+        """Per-user cache folder, so tenants with the same invoice number never share a file."""
+        # Supabase user ids are UUIDs; normalizing also rules out path traversal via the id.
+        user_dir = self.get_invoices_dir() / str(uuid.UUID(user_id))
+        user_dir.mkdir(parents=True, exist_ok=True)
+        return user_dir
+
+    def is_user_local_path(self, user_id: str, file_path: str | None) -> bool:
+        """True only for files inside this user's cache folder.
+
+        Records created before per-user folders point at the shared flat directory, where a
+        same-named file may belong to another tenant, so those are never treated as owned.
+        """
+        if not file_path:
+            return False
+        user_dir = (settings.invoices_dir / str(uuid.UUID(user_id))).resolve()
+        return Path(file_path).resolve().is_relative_to(user_dir)
+
     async def save_uploaded_pdf(self, file: UploadFile, user_id: str) -> tuple[str, Path, bytes, str | None]:
         """
         Save an uploaded PDF to disk.
@@ -35,7 +53,7 @@ class StorageService:
         doc_id = str(uuid.uuid4())
         safe_name = Path(file.filename or "invoice.pdf").name
         filename = f"{doc_id}_{safe_name}"
-        file_path = self.get_invoices_dir() / filename
+        file_path = self.get_user_dir(user_id) / filename
 
         file_path.write_bytes(contents)
 
@@ -54,7 +72,7 @@ class StorageService:
     ) -> tuple[Path, str | None]:
         safe_number = invoice_number.replace("/", "-").replace(" ", "_")
         filename = f"{safe_number}.pdf"
-        pdf_path = self.get_invoices_dir() / filename
+        pdf_path = self.get_user_dir(user_id) / filename
         pdf_path.write_bytes(pdf_bytes)
         storage_path = None
         if settings.supabase_url and settings.supabase_service_role_key:

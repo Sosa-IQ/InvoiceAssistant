@@ -42,10 +42,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("application_stopping")
 
 
+# Interactive docs and the schema map every endpoint; only expose them outside production.
+_expose_docs = app_settings.app_environment.strip().lower() not in {"production", "prod"}
+
 app = FastAPI(
     title="Cuenvia API",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if _expose_docs else None,
+    redoc_url="/redoc" if _expose_docs else None,
+    openapi_url="/openapi.json" if _expose_docs else None,
 )
 
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
-import { Loader2, LockKeyhole, UserPlus } from "lucide-react"
+import { Loader2, LockKeyhole, MailCheck, UserPlus } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { isSupabaseConfigured, missingSupabaseEnvVars, supabase } from "@/lib/supabase"
 import { useAuth } from "@/auth/AuthContext"
+import { Turnstile } from "@/components/Turnstile"
+import { TURNSTILE_SITE_KEY } from "@/lib/turnstile"
 import { APP_INITIALS, APP_NAME, APP_TAGLINE } from "@/lib/brand"
 
 type AuthFormData = {
@@ -15,12 +17,22 @@ type AuthFormData = {
   password: string
 }
 
+type AuthMode = "login" | "signup" | "forgot"
+
 export default function AuthPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const [mode, setMode] = useState<"login" | "signup">("login")
+  const initialMode = (location.state as { mode?: AuthMode } | null)?.mode === "signup" ? "signup" : "login"
+  const [mode, setMode] = useState<AuthMode>(initialMode)
   const [loading, setLoading] = useState(false)
+  // Set after a request that finishes by email (signup confirmation or password reset).
+  const [sentTo, setSentTo] = useState<{ email: string; kind: "confirm" | "reset" } | null>(null)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  // Turnstile tokens are single-use; bumping this remounts the widget for a fresh one.
+  const [captchaKey, setCaptchaKey] = useState(0)
+  const captchaRequired = TURNSTILE_SITE_KEY !== ""
+  const captcha = captchaToken ?? undefined
   const { register, handleSubmit } = useForm<AuthFormData>()
   const redirectTo = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/invoices"
 
@@ -36,17 +48,34 @@ export default function AuthPage() {
 
     setLoading(true)
     try {
-      if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          email: values.email,
-          password: values.password,
+      if (mode === "forgot") {
+        const { error } = await supabase.auth.resetPasswordForEmail(values.email, {
+          redirectTo: `${window.location.origin}/reset-password`,
+          captchaToken: captcha,
         })
         if (error) throw error
+        // Same message whether or not the address has an account, so the form can't be used to probe emails.
+        setSentTo({ email: values.email, kind: "reset" })
+        return
+      }
+      if (mode === "signup") {
+        const { data, error } = await supabase.auth.signUp({
+          email: values.email,
+          password: values.password,
+          options: { emailRedirectTo: `${window.location.origin}/invoices`, captchaToken: captcha },
+        })
+        if (error) throw error
+        if (!data.session) {
+          // Email confirmation is required before the account can sign in.
+          setSentTo({ email: values.email, kind: "confirm" })
+          return
+        }
         toast.success("Account created.")
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email: values.email,
           password: values.password,
+          options: { captchaToken: captcha },
         })
         if (error) throw error
         toast.success("Signed in.")
@@ -57,6 +86,7 @@ export default function AuthPage() {
       toast.error(message)
     } finally {
       setLoading(false)
+      if (captchaRequired) setCaptchaKey((key) => key + 1)
     }
   }
 
@@ -91,40 +121,91 @@ export default function AuthPage() {
             </div>
           )}
 
-          <div className="mb-6 grid grid-cols-2 gap-2 rounded-2xl bg-muted p-1.5">
-            <Button
-              type="button"
-              variant={mode === "login" ? "default" : "outline"}
-              onClick={() => setMode("login")}
-              className="min-h-11 rounded-xl"
-            >
-              Log In
-            </Button>
-            <Button
-              type="button"
-              variant={mode === "signup" ? "default" : "outline"}
-              onClick={() => setMode("signup")}
-              className="min-h-11 rounded-xl"
-            >
-              <UserPlus aria-hidden="true" className="mr-1.5 h-4 w-4" />
-              Sign Up
-            </Button>
-          </div>
+          {sentTo ? (
+            <div className="space-y-4 text-center" role="status">
+              <MailCheck aria-hidden="true" className="mx-auto h-10 w-10 text-primary" />
+              <h2 className="text-xl font-black">Check your email</h2>
+              <p className="text-sm leading-6 text-muted-foreground">
+                {sentTo.kind === "confirm"
+                  ? <>We sent a confirmation link to <strong className="break-all text-foreground">{sentTo.email}</strong>. Open it to finish creating your account.</>
+                  : <>If an account exists for <strong className="break-all text-foreground">{sentTo.email}</strong>, we sent a link to reset your password.</>}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 w-full rounded-xl"
+                onClick={() => {
+                  setSentTo(null)
+                  setMode("login")
+                }}
+              >
+                Back to log in
+              </Button>
+            </div>
+          ) : (
+            <>
+              {mode === "forgot" ? (
+                <div className="mb-6 space-y-1.5">
+                  <h2 className="text-xl font-black">Reset your password</h2>
+                  <p className="text-sm text-muted-foreground">Enter your account email and we will send you a reset link.</p>
+                </div>
+              ) : (
+                <div className="mb-6 grid grid-cols-2 gap-2 rounded-2xl bg-muted p-1.5">
+                  <Button
+                    type="button"
+                    variant={mode === "login" ? "default" : "outline"}
+                    onClick={() => setMode("login")}
+                    className="min-h-11 rounded-xl"
+                  >
+                    Log In
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={mode === "signup" ? "default" : "outline"}
+                    onClick={() => setMode("signup")}
+                    className="min-h-11 rounded-xl"
+                  >
+                    <UserPlus aria-hidden="true" className="mr-1.5 h-4 w-4" />
+                    Sign Up
+                  </Button>
+                </div>
+              )}
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-            <div className="space-y-1.5">
-              <Label htmlFor="auth-email">Email</Label>
-              <Input id="auth-email" type="email" autoComplete="email" {...register("email", { required: true })} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="auth-password">Password</Label>
-              <Input id="auth-password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} {...register("password", { required: true, minLength: 8 })} />
-            </div>
-            <Button type="submit" className="min-h-12 w-full rounded-xl" disabled={loading}>
-              {loading && <Loader2 aria-hidden="true" className="mr-1.5 h-4 w-4 animate-spin" />}
-              {mode === "signup" ? "Create Account" : "Log In"}
-            </Button>
-          </form>
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+                <div className="space-y-1.5">
+                  <Label htmlFor="auth-email">Email</Label>
+                  <Input id="auth-email" type="email" autoComplete="email" {...register("email", { required: true })} />
+                </div>
+                {mode !== "forgot" && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="auth-password">Password</Label>
+                      {mode === "login" && (
+                        <button
+                          type="button"
+                          onClick={() => setMode("forgot")}
+                          className="text-sm font-bold text-primary underline-offset-4 hover:underline"
+                        >
+                          Forgot password?
+                        </button>
+                      )}
+                    </div>
+                    <Input id="auth-password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} {...register("password", { required: true, minLength: 8, shouldUnregister: true })} />
+                  </div>
+                )}
+                {captchaRequired && <Turnstile key={captchaKey} onToken={setCaptchaToken} />}
+                <Button type="submit" className="min-h-12 w-full rounded-xl" disabled={loading || (captchaRequired && !captchaToken)}>
+                  {loading && <Loader2 aria-hidden="true" className="mr-1.5 h-4 w-4 animate-spin" />}
+                  {mode === "signup" ? "Create Account" : mode === "forgot" ? "Send reset link" : "Log In"}
+                </Button>
+                {mode === "forgot" && (
+                  <Button type="button" variant="ghost" className="min-h-11 w-full rounded-xl" onClick={() => setMode("login")}>
+                    Back to log in
+                  </Button>
+                )}
+              </form>
+            </>
+          )}
         </section>
       </div>
     </div>

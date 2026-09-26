@@ -25,6 +25,7 @@ from app.models.schemas import (
 )
 from app.services.stripe_service import stripe_service
 from app.services.usage_service import (
+    free_email_allowance,
     PACK_AI,
     PACK_VOICE,
     credit_pack_from_checkout,
@@ -66,8 +67,17 @@ _FREE_FEATURES = [
     "Export invoice PDFs",
     "Import past invoice PDFs",
 ]
+
+
+def _free_features() -> list[str]:
+    limit = settings.free_monthly_email_limit
+    if limit < 1:
+        return _FREE_FEATURES
+    return [*_FREE_FEATURES, f"Email up to {limit} invoices a month"]
+
+
 _PRO_FEATURES = [
-    "Email invoice delivery",
+    "Unlimited invoice email delivery",
     "AI-assisted drafting and edits",
     "Voice input",
     "Automatic smart suggestions from your invoices",
@@ -216,7 +226,7 @@ def _free_plan(currency: str) -> BillingPlanRead:
         price_cents=0,
         currency=currency,
         interval="month",
-        features=_FREE_FEATURES,
+        features=_free_features(),
     )
 
 
@@ -318,6 +328,7 @@ async def get_usage_status(
     db: AsyncSession = Depends(get_db),
 ) -> UsageStatusRead:
     snap = await get_usage_snapshot(db, current_user.id)
+    email_limit, emails_used = await free_email_allowance(db, current_user.id)
     return UsageStatusRead(
         pro_entitled=snap.pro_entitled,
         period_start=snap.period_start,
@@ -335,6 +346,8 @@ async def get_usage_status(
         packs_frozen=snap.packs_frozen,
         ai_pack_configured=settings.ai_pack_configured,
         voice_pack_configured=settings.voice_pack_configured,
+        email_monthly_limit=email_limit,
+        emails_sent_this_period=emails_used,
     )
 
 

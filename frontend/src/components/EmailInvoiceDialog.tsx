@@ -285,6 +285,8 @@ export function EmailInvoiceDialog({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["invoice-emails", record.id] }),
         queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+        // Refresh the Free email allowance shown elsewhere.
+        queryClient.invalidateQueries({ queryKey: ["billing", "usage"] }),
       ])
       setView("sent")
     } catch (error) {

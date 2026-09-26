@@ -20,8 +20,8 @@ The implementation does not trust the browser for prices, plan state, redirect U
 
 No new invoice or payment-tracking features are introduced.
 
-- **Free:** manual invoices, clients, catalog, PDF export, and bulk PDF import (stored without embeddings).
-- **Pro ($12/mo or $120/yr; launch promo $9/mo for 3 months when configured in Stripe):** email delivery, AI generate/revise, voice transcription, automatic embeddings for smart suggestions.
+- **Free:** manual invoices, clients, catalog, PDF export, bulk PDF import (stored without embeddings), and `FREE_MONTHLY_EMAIL_LIMIT` invoice emails per calendar month (default 5). Sent and in-flight emails count; failed attempts and replays of a completed send do not.
+- **Pro ($12/mo or $120/yr; launch promo $9/mo for 3 months when configured in Stripe):** unlimited email delivery (still subject to `EMAIL_SEND_LIMIT` rate limiting), AI generate/revise, voice transcription, automatic embeddings for smart suggestions.
 - **AI usage:** metered by tokens (generate + revise share one monthly pool). UI shows a plain usage bar plus “How usage works.” Monthly included allotment does **not** roll over.
 - **Voice usage:** metered by audio seconds, with per-clip duration/size caps and hourly request limits.
 - **Top-up packs (Pro only):** one-time Stripe Checkout payments. Pack balances **roll until used**, but are **frozen** (not deleted) when Pro ends and unfreeze on resubscribe. Spend order: included monthly first, then packs.
@@ -105,7 +105,7 @@ In Stripe test mode, open **Billing → Customer portal** and configure the subs
 8. Cancel in the test portal; confirm the cancellation/end-of-period state returns through the webhook and appears in `/billing`.
 9. Replay one event with the Stripe CLI or Dashboard and confirm the endpoint returns success without duplicating or regressing state.
 
-Only after this full test-mode flow succeeds should `BILLING_ENFORCEMENT_ENABLED=true` be considered. Enabling it makes AI generation, voice transcription, and invoice email delivery return HTTP 402 for users without an active/trialing Pro subscription.
+Only after this full test-mode flow succeeds should `BILLING_ENFORCEMENT_ENABLED=true` be considered. Enabling it makes AI generation and voice transcription return HTTP 402 for users without an active/trialing Pro subscription, and caps Free invoice email at `FREE_MONTHLY_EMAIL_LIMIT` per month (402 once used up).
 
 ## Production webhook
 
