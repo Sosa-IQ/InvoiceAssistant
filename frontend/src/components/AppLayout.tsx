@@ -18,16 +18,29 @@ const ACCOUNT_NAV = [
 ]
 const MOBILE_NAV = [...MAIN_NAV, ACCOUNT_NAV[0]]
 
+// Storage access throws when the browser blocks site data; the theme choice just won't persist.
+function readStoredTheme(): string | null {
+  try {
+    return localStorage.getItem("theme")
+  } catch {
+    return null
+  }
+}
+
 function useDarkMode() {
   const [dark, setDark] = useState(() => {
-    const stored = localStorage.getItem("theme")
+    const stored = readStoredTheme()
     if (stored) return stored === "dark"
     return window.matchMedia("(prefers-color-scheme: dark)").matches
   })
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark)
-    localStorage.setItem("theme", dark ? "dark" : "light")
+    try {
+      localStorage.setItem("theme", dark ? "dark" : "light")
+    } catch {
+      // Not persisted; see readStoredTheme.
+    }
   }, [dark])
 
   return [dark, () => setDark((value) => !value)] as const
