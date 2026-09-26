@@ -11,6 +11,9 @@ import AppLayout from "@/components/AppLayout"
 import AppErrorBoundary from "@/components/AppErrorBoundary"
 import PageLoading from "@/components/PageLoading"
 import ComingSoonPage from "@/pages/ComingSoonPage"
+import { initSentry } from "@/lib/sentry"
+
+initSentry()
 
 // Pre-launch: set VITE_COMING_SOON=true (Vercel Production) to serve only the placeholder page.
 const COMING_SOON = import.meta.env.VITE_COMING_SOON === "true"
