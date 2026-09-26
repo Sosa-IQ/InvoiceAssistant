@@ -52,6 +52,8 @@ const freeUsage = {
   packs_frozen: false,
   ai_pack_configured: false,
   voice_pack_configured: false,
+  email_monthly_limit: 5,
+  emails_sent_this_period: 0,
 } as const
 
 beforeEach(() => {

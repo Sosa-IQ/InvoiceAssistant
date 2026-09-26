@@ -28,6 +28,7 @@ vi.mock("@/api/invoices", () => ({
 
 vi.mock("@/api/billing", () => ({
   getBillingStatus: vi.fn(),
+  getUsageStatus: vi.fn(),
   createCheckoutSession: vi.fn(),
 }))
 
@@ -46,7 +47,7 @@ import {
   saveInvoice,
   sendInvoice,
 } from "@/api/invoices"
-import { getBillingStatus } from "@/api/billing"
+import { getBillingStatus, getUsageStatus } from "@/api/billing"
 import { listClients } from "@/api/clients"
 import InvoiceEditorPage from "./InvoiceEditorPage"
 
@@ -84,6 +85,10 @@ const savedRecord: InvoiceRecord = {
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  vi.mocked(getUsageStatus).mockResolvedValue({
+    email_monthly_limit: null,
+    emails_sent_this_period: 0,
+  } as Awaited<ReturnType<typeof getUsageStatus>>)
   vi.mocked(getBillingStatus).mockResolvedValue({
     plan: "pro",
     status: "active",

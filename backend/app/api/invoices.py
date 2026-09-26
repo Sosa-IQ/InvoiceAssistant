@@ -46,6 +46,7 @@ from app.services.pdf_parser import PDFParserService
 from app.services.rag_service import RAGService
 from app.services.storage import StorageService
 from app.services.usage_service import (
+    ensure_email_allowance,
     consume_ai_tokens,
     ensure_ai_budget_before_call,
     user_is_pro,
@@ -895,7 +896,7 @@ async def send_invoice(
     record_id: int,
     request: Request,
     body: SendInvoiceRequest,
-    current_user: AuthenticatedUser = Depends(require_pro_entitlement),
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SendInvoiceResponse:
     record = await _get_owned_invoice_record(db, current_user.id, record_id)
@@ -1025,6 +1026,9 @@ async def send_invoice(
                         f"Reconcile email attempt {email_record.id} before retrying."
                     ),
                 )
+
+    # Free accounts get a monthly allowance; replays of sent emails returned above never count.
+    await ensure_email_allowance(db, current_user.id)
 
     if email_record is None:
         email_record = InvoiceEmail(

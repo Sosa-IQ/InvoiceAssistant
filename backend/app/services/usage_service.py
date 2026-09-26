@@ -8,11 +8,11 @@ from datetime import UTC, datetime, timedelta
 from calendar import monthrange
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.db_models import Subscription, UsageEvent, UsagePackCredit
+from app.models.db_models import InvoiceEmail, Subscription, UsageEvent, UsagePackCredit
 from app.security import enforce_rate_limit
 
 logger = logging.getLogger(__name__)
@@ -385,3 +385,51 @@ async def user_is_pro(db: AsyncSession, user_id: str) -> bool:
         await db.execute(select(Subscription).where(Subscription.user_id == user_id))
     ).scalar_one_or_none()
     return is_pro_entitled(row)
+
+
+async def count_period_emails(
+    db: AsyncSession, *, user_id: str, period_start: datetime, period_end: datetime
+) -> int:
+    """Invoice emails sent or in flight in the period; failed attempts do not count."""
+    result = await db.execute(
+        select(func.count(InvoiceEmail.id)).where(
+            InvoiceEmail.user_id == user_id,
+            InvoiceEmail.status.in_(("sent", "pending")),
+            InvoiceEmail.created_at >= period_start,
+            InvoiceEmail.created_at < period_end,
+        )
+    )
+    return int(result.scalar_one())
+
+
+async def free_email_allowance(db: AsyncSession, user_id: str) -> tuple[int | None, int]:
+    """Return (monthly limit or None when unlimited, emails used this period)."""
+    row = (
+        await db.execute(select(Subscription).where(Subscription.user_id == user_id))
+    ).scalar_one_or_none()
+    period_start, period_end = period_bounds(row)
+    used = await count_period_emails(db, user_id=user_id, period_start=period_start, period_end=period_end)
+    if not settings.billing_enforcement_enabled or is_pro_entitled(row):
+        return None, used
+    return settings.free_monthly_email_limit, used
+
+
+async def ensure_email_allowance(db: AsyncSession, user_id: str) -> None:
+    """Block a new send once a Free account has used its monthly allowance.
+
+    Holds a per-user transaction lock until the caller commits its pending email row, so
+    two concurrent sends cannot both claim the last free email.
+    """
+    if not settings.billing_enforcement_enabled:
+        return
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"free-email:{user_id}"},
+    )
+    limit, used = await free_email_allowance(db, user_id)
+    if limit is not None and used >= limit:
+        raise HTTPException(
+            402,
+            f"Free includes {limit} invoice emails per month, and you've used them all. "
+            "Upgrade to Pro for unlimited email sending.",
+        )

@@ -17,7 +17,7 @@ const STEPS = [
   },
   {
     title: "Send when you are ready",
-    body: "With Pro, email the invoice, use voice, and let AI help revise drafts — all from one calm workspace.",
+    body: "Email the PDF straight to your client. With Pro, send unlimited emails, use voice, and let AI help revise drafts.",
   },
 ]
 
@@ -35,7 +35,7 @@ const FEATURES = [
   {
     icon: Mail,
     title: "Email delivery",
-    body: "Send the PDF to your client and keep a simple history of what went out.",
+    body: "Send the PDF to your client and keep a simple history of what went out. Free includes 5 emails a month.",
   },
   {
     icon: Mic,
@@ -118,7 +118,7 @@ export default function LandingPage() {
         <div className="mx-auto max-w-6xl rounded-[32px] border border-border bg-card p-8 text-center shadow-sm sm:p-12">
           <h2 className="text-3xl font-black tracking-tight">Ready when you are</h2>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
-            Create your free {APP_NAME} workspace in a minute. Add Pro later for AI, voice, and email.
+            Create your free {APP_NAME} workspace in a minute. Add Pro later for AI, voice, and unlimited email.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Button asChild className="min-h-12 rounded-xl px-6 font-black">

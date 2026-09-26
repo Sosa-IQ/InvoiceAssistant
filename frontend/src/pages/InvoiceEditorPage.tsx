@@ -27,6 +27,7 @@ import { EmailInvoiceDialog } from "@/components/EmailInvoiceDialog"
 import { ProLockedPanel } from "@/components/ProLockedPanel"
 import { ProUpgradeDialog } from "@/components/ProUpgradeDialog"
 import { useProAccess } from "@/hooks/useProAccess"
+import { freeEmailSummary, useEmailAllowance } from "@/hooks/useEmailAllowance"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -115,6 +116,8 @@ export default function InvoiceEditorPage() {
   const [emailDialogRecord, setEmailDialogRecord] = useState<InvoiceRecord | null>(null)
   const [proUpgradeOpen, setProUpgradeOpen] = useState(false)
   const { isPro } = useProAccess()
+  const emailAllowance = useEmailAllowance()
+  const emailSummary = freeEmailSummary(emailAllowance.limit, emailAllowance.remaining)
   const [aiInstruction, setAiInstruction] = useState("")
   const [aiRevising, setAiRevising] = useState(false)
   const [aiRecording, setAiRecording] = useState(false)
@@ -409,7 +412,7 @@ export default function InvoiceEditorPage() {
   function openEmailDialog() {
     if (!savedRecord) return
     setShowEmailPrompt(false)
-    if (!isPro) {
+    if (!emailAllowance.canEmail) {
       setProUpgradeOpen(true)
       return
     }
@@ -751,22 +754,23 @@ export default function InvoiceEditorPage() {
       <Dialog open={showEmailPrompt} onOpenChange={(open) => { if (!open) skipEmail() }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{isPro ? "Email this invoice now?" : "Invoice saved"}</DialogTitle>
+            <DialogTitle>{emailAllowance.canEmail ? "Email this invoice now?" : "Invoice saved"}</DialogTitle>
             <DialogDescription>
-              {isPro
+              {emailAllowance.canEmail
                 ? "The invoice is saved. You can review the message, preview the PDF, and send it now."
-                : "Your invoice is saved. Email delivery is a Pro feature — upgrade to send the PDF from Cuenvia."}
+                : "Your invoice is saved. Upgrade to Pro for unlimited invoice email."}
+              {emailSummary && <span className="mt-2 block font-medium text-foreground">{emailSummary}</span>}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={skipEmail}>
-              {isPro ? "Not now" : "Done"}
+              {emailAllowance.canEmail ? "Not now" : "Done"}
             </Button>
-            {isPro ? (
+            {emailAllowance.canEmail ? (
               <Button type="button" onClick={openEmailDialog}>Email Invoice</Button>
             ) : (
               <Button type="button" onClick={() => { setShowEmailPrompt(false); setProUpgradeOpen(true) }}>
-                Unlock email with Pro
+                Get unlimited email with Pro
               </Button>
             )}
           </DialogFooter>
@@ -789,7 +793,7 @@ export default function InvoiceEditorPage() {
           if (!open) navigate("/invoices")
         }}
         feature="email invoices"
-        description="Email PDF invoices to clients from Cuenvia. Included with Pro, along with AI drafting and voice."
+        description="You've used this month's free invoice emails. Pro includes unlimited email, plus AI drafting and voice."
       />
     </div>
   )

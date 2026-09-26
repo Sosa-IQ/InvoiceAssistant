@@ -21,8 +21,9 @@ export default function TermsPage() {
           <h2 className="text-lg font-black text-foreground">The service</h2>
           <p>
             {APP_NAME} helps you create, save, and send invoices. The Free plan covers invoices, clients, catalog items,
-            PDF export, and importing past invoice PDFs. Pro adds AI drafting and edits, voice input, invoice email
-            delivery, and smart suggestions, with monthly usage allowances shown in the app. We may improve, change, or
+            PDF export, importing past invoice PDFs, and a small monthly allowance of invoice emails. Pro adds unlimited
+            invoice email, AI drafting and edits, voice input, and smart suggestions, with monthly usage allowances shown
+            in the app. We may improve, change, or
             retire features over time.
           </p>
 
