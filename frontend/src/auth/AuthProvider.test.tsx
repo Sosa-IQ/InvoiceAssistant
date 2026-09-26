@@ -109,7 +109,8 @@ describe("AuthProvider — same-user auth events must not unmount children", () 
 
     // Initial bootstrap loads once.
     await waitFor(() => expect(screen.getByTestId("probe-count")).toBeInTheDocument())
-    expect(mountCount).toBe(1)
+    // The mount effect can run just after the element appears; wait for it rather than racing it.
+    await waitFor(() => expect(mountCount).toBe(1))
 
     await user.click(screen.getByRole("button", { name: "increment" }))
     await user.click(screen.getByRole("button", { name: "increment" }))
@@ -165,7 +166,8 @@ describe("AuthProvider — same-user auth events must not unmount children", () 
     renderAuthProvider()
 
     await waitFor(() => expect(screen.getByTestId("probe-count")).toBeInTheDocument())
-    expect(mountCount).toBe(1)
+    // The mount effect can run just after the element appears; wait for it rather than racing it.
+    await waitFor(() => expect(mountCount).toBe(1))
 
     // Each bootstrap now gets its own pending profile fetch so we can settle the
     // older same-user request before the newer identity request.
@@ -225,7 +227,8 @@ describe("AuthProvider — same-user auth events must not unmount children", () 
     renderAuthProvider()
 
     await waitFor(() => expect(screen.getByTestId("probe-count")).toBeInTheDocument())
-    expect(mountCount).toBe(1)
+    // The mount effect can run just after the element appears; wait for it rather than racing it.
+    await waitFor(() => expect(mountCount).toBe(1))
 
     let resolveProfile!: (value: Awaited<ReturnType<typeof getCurrentUserProfile>>) => void
     vi.mocked(getCurrentUserProfile).mockImplementation(
