@@ -10,6 +10,10 @@ import RequireAuth from "@/auth/RequireAuth"
 import AppLayout from "@/components/AppLayout"
 import AppErrorBoundary from "@/components/AppErrorBoundary"
 import PageLoading from "@/components/PageLoading"
+import ComingSoonPage from "@/pages/ComingSoonPage"
+
+// Pre-launch: set VITE_COMING_SOON=true (Vercel Production) to serve only the placeholder page.
+const COMING_SOON = import.meta.env.VITE_COMING_SOON === "true"
 
 const LandingPage = lazy(() => import("@/pages/LandingPage"))
 const AuthPage = lazy(() => import("@/pages/AuthPage"))
@@ -70,14 +74,20 @@ const queryClient = new QueryClient({
 })
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <AppErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <RouterProvider router={router} />
-          <Toaster richColors position="top-right" />
-        </AuthProvider>
-      </QueryClientProvider>
-    </AppErrorBoundary>
-  </StrictMode>,
+  COMING_SOON ? (
+    <StrictMode>
+      <ComingSoonPage />
+    </StrictMode>
+  ) : (
+    <StrictMode>
+      <AppErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <RouterProvider router={router} />
+            <Toaster richColors position="top-right" />
+          </AuthProvider>
+        </QueryClientProvider>
+      </AppErrorBoundary>
+    </StrictMode>
+  ),
 )
