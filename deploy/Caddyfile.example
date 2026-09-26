@@ -1,11 +1,13 @@
-# Caddy — reverse proxy + automatic HTTPS (Let's Encrypt)
+# Caddy — reverse proxy in front of the API container.
 # Install on the EC2 host, not inside the API container.
-
-{
-	email YOUR_EMAIL@example.com
-}
+#
+# api.cuenvia.com is proxied through Cloudflare, so Caddy serves a Cloudflare
+# Origin CA certificate (15-year, trusted only by Cloudflare) instead of
+# Let's Encrypt; ACME renewals through the Cloudflare proxy are unreliable.
+# Requires Cloudflare SSL/TLS mode "Full (strict)". See docs/deploy-ec2.md §7.
 
 api.YOUR_DOMAIN.com {
+	tls /etc/caddy/cloudflare-origin.pem /etc/caddy/cloudflare-origin-key.pem
 	encode gzip
 	reverse_proxy 127.0.0.1:8000
 }

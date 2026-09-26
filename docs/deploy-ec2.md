@@ -283,6 +283,30 @@ curl -sS https://api.yourdomain.com/health/live
 
 ---
 
+### Behind Cloudflare: Origin CA certificate and firewall lock
+
+`api.cuenvia.com` is proxied by Cloudflare. Let's Encrypt renewals through the proxy are unreliable, so Caddy uses a **Cloudflare Origin CA** certificate and the security group only admits Cloudflare.
+
+1. Cloudflare → SSL/TLS → Overview → set encryption mode to **Full (strict)**.
+2. Cloudflare → SSL/TLS → Origin Server → **Create Certificate** (RSA 2048, hostnames `api.cuenvia.com`, 15 years). Keep the page open.
+3. On the server, paste the certificate and then the private key (each `sudo tee` waits for input; paste, then press Ctrl+D):
+
+   ```bash
+   sudo tee /etc/caddy/cloudflare-origin.pem >/dev/null
+   sudo tee /etc/caddy/cloudflare-origin-key.pem >/dev/null
+   sudo chown caddy:caddy /etc/caddy/cloudflare-origin*.pem
+   sudo chmod 600 /etc/caddy/cloudflare-origin-key.pem
+   ```
+
+4. Add `tls /etc/caddy/cloudflare-origin.pem /etc/caddy/cloudflare-origin-key.pem` to the site block (see `deploy/Caddyfile.example`), then:
+
+   ```bash
+   sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
+   curl -sS https://api.cuenvia.com/health/ready
+   ```
+
+5. Only after that works, restrict inbound 80/443 in the security group to the managed prefix lists `cloudflare-ipv4` and `cloudflare-ipv6` (source: https://www.cloudflare.com/ips/), and remove the `0.0.0.0/0` rules. Keep the prefix lists in sync if Cloudflare publishes new ranges.
+
 ## 8. Vercel frontend
 
 1. [vercel.com](https://vercel.com) → Import `Sosa-IQ/InvoiceAssistant`
