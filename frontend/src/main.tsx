@@ -17,6 +17,7 @@ const COMING_SOON = import.meta.env.VITE_COMING_SOON === "true"
 
 const LandingPage = lazy(() => import("@/pages/LandingPage"))
 const AuthPage = lazy(() => import("@/pages/AuthPage"))
+const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage"))
 const PricingPage = lazy(() => import("@/pages/PricingPage"))
 const TermsPage = lazy(() => import("@/pages/TermsPage"))
 const PrivacyPage = lazy(() => import("@/pages/PrivacyPage"))
@@ -37,6 +38,7 @@ function deferred(node: ReactNode) {
 const router = createBrowserRouter([
   { path: "/", element: deferred(<LandingPage />) },
   { path: "/auth", element: deferred(<AuthPage />) },
+  { path: "/reset-password", element: deferred(<ResetPasswordPage />) },
   { path: "/pricing", element: deferred(<PricingPage />) },
   { path: "/terms", element: deferred(<TermsPage />) },
   { path: "/privacy", element: deferred(<PrivacyPage />) },
