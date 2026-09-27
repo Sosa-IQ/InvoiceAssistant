@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useForm } from "react-hook-form"
-import { AlertCircle, ArrowRight, CreditCard, Loader2, RotateCw, Save } from "lucide-react"
+import { useForm, useWatch } from "react-hook-form"
+import { AlertCircle, AlertTriangle, ArrowRight, CreditCard, Loader2, RotateCw, Save } from "lucide-react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -10,19 +10,12 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { DeleteAccountSection } from "@/components/DeleteAccountSection"
 import { getSettings, updateSettings } from "@/api/settings"
+import { apiErrorMessage } from "@/api/client"
 import { CURRENCIES, PAYMENT_TERMS, PAYMENT_TERMS_HELP } from "@/lib/paymentTerms"
+import { EMAIL_TEMPLATE_PLACEHOLDERS, unknownPlaceholders } from "@/lib/emailTemplates"
 import type { BusinessSettings } from "@/types/invoice"
 
 type SettingsFormData = Omit<BusinessSettings, "id" | "user_id" | "updated_at" | "onboarding_completed" | "onboarding_completed_at">
-
-const EMAIL_TEMPLATE_PLACEHOLDERS = [
-  "{invoice_number}",
-  "{client_name}",
-  "{business_name}",
-  "{issue_date}",
-  "{total}",
-  "{currency}",
-]
 
 export default function SettingsPage() {
   const qc = useQueryClient()
@@ -31,7 +24,9 @@ export default function SettingsPage() {
     queryFn: getSettings,
   })
 
-  const { register, handleSubmit, reset } = useForm<SettingsFormData>()
+  const { register, handleSubmit, reset, control } = useForm<SettingsFormData>()
+  const [subjectTemplate, messageTemplate] = useWatch({ control, name: ["default_email_subject", "default_email_message"] })
+  const unknownInTemplates = [...new Set([...unknownPlaceholders(subjectTemplate), ...unknownPlaceholders(messageTemplate)])]
 
   useEffect(() => {
     if (data) reset(data)
@@ -40,7 +35,7 @@ export default function SettingsPage() {
   const saveMutation = useMutation({
     mutationFn: updateSettings,
     onSuccess: () => { toast.success("Settings saved."); qc.invalidateQueries({ queryKey: ["settings"] }) },
-    onError: () => toast.error("Failed to save settings."),
+    onError: (error) => toast.error(apiErrorMessage(error, "Failed to save settings.")),
   })
 
   if (isLoading) {
@@ -132,6 +127,22 @@ export default function SettingsPage() {
             <Label htmlFor="default-email-message">Default Email Message</Label>
             <Textarea id="default-email-message" {...register("default_email_message")} rows={6} className="resize-y" />
           </div>
+          {unknownInTemplates.length > 0 && (
+            <div role="status" className="flex gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+              <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <p>
+                {unknownInTemplates.map((group, index) => (
+                  <span key={group}>
+                    <code className="rounded bg-muted px-1 py-0.5 text-xs">{group}</code>
+                    {index < unknownInTemplates.length - 1 ? ", " : " "}
+                  </span>
+                ))}
+                {unknownInTemplates.length === 1 ? "isn't a placeholder" : "aren't placeholders"} Cuenvia fills in, so{" "}
+                {unknownInTemplates.length === 1 ? "it" : "they"} will be sent exactly as typed. Check for a typo if you
+                meant one of the placeholders above.
+              </p>
+            </div>
+          )}
         </section>
 
         <section className="rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
