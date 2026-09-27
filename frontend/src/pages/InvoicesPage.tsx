@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Upload, FileText, CheckCircle, XCircle, Loader2, Eye, Trash2, Pencil, Mail, Download, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
 import { toast } from "sonner"
@@ -117,7 +117,9 @@ export default function InvoicesPage() {
   const { canEmail: hasEmailAllowance } = useEmailAllowance()
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
   const [sort, setSort] = useState<SortState>({ key: "issue_date", dir: "desc" })
-  const [filters, setFilters] = useState<HistoryFilters>(NO_FILTERS)
+  const [searchParams] = useSearchParams()
+  // Opened from a client's "View all in Invoices" link: start filtered to that client.
+  const [filters, setFilters] = useState<HistoryFilters>(() => ({ ...NO_FILTERS, client: searchParams.get("client") ?? "" }))
 
   const { data: records = [], isLoading, isError, refetch } = useQuery<InvoiceRecord[]>({
     queryKey: ["invoices"],

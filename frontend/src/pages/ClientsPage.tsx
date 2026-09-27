@@ -1,6 +1,7 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { ChevronDown, ChevronRight, Plus, Pencil, Trash2, Users, MapPin } from "lucide-react"
+import { ChevronDown, ChevronRight, Plus, Pencil, Trash2, Users, MapPin, FileText } from "lucide-react"
+import { Link } from "react-router-dom"
 import { toast } from "sonner"
 import { useForm } from "react-hook-form"
 import { Button } from "@/components/ui/button"
@@ -31,7 +32,77 @@ import {
   updateClientAddress,
   deleteClientAddress,
 } from "@/api/clients"
-import type { Client, ClientAddress } from "@/types/invoice"
+import { listInvoices } from "@/api/invoices"
+import { SearchInput } from "@/components/SearchInput"
+import { matchesSearch } from "@/lib/search"
+import { statusLabel } from "@/lib/invoiceHistory"
+import type { Client, ClientAddress, InvoiceRecord } from "@/types/invoice"
+
+function money(value: number | null, currency: string) {
+  if (value == null) return "—"
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(value)
+}
+
+/** A client's invoices, newest first, collapsed until opened. */
+function ClientInvoices({ client, invoices }: { client: Client; invoices: InvoiceRecord[] }) {
+  const [open, setOpen] = useState(false)
+  const Chevron = open ? ChevronDown : ChevronRight
+  if (invoices.length === 0) {
+    return (
+      <div className="space-y-1.5">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Invoices</span>
+        <p className="text-xs italic text-muted-foreground">No invoices yet.</p>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="-ml-2 min-h-11 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <Chevron className="mr-1 h-3.5 w-3.5" />
+          Invoices
+          <span className="ml-1 font-normal normal-case tracking-normal">({invoices.length})</span>
+        </Button>
+        {open && (
+          <Button asChild variant="link" size="sm" className="min-h-11 px-2 text-xs">
+            <Link to={`/invoices?client=${encodeURIComponent(client.name)}`}>View all in Invoices</Link>
+          </Button>
+        )}
+      </div>
+      {open && (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="h-7 text-xs">Invoice #</TableHead>
+              <TableHead className="h-7 text-xs">Date</TableHead>
+              <TableHead className="h-7 text-right text-xs">Total</TableHead>
+              <TableHead className="h-7 text-xs">Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {invoices.map((r) => (
+              <TableRow key={r.id}>
+                <TableCell className="py-1.5 text-sm">
+                  <span className="inline-flex items-center gap-1.5"><FileText className="h-3.5 w-3.5 text-muted-foreground" />{r.invoice_number ?? r.filename}</span>
+                </TableCell>
+                <TableCell className="py-1.5 text-sm">{r.issue_date ?? "—"}</TableCell>
+                <TableCell className="py-1.5 text-right text-sm">{money(r.grand_total, r.currency)}</TableCell>
+                <TableCell className="py-1.5 text-sm capitalize">{statusLabel(r)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </div>
+  )
+}
 
 type ClientFormData = { name: string; email: string | null; phone: string | null; notes: string | null }
 type AddressFormData = { label: string; address: string }
@@ -49,12 +120,26 @@ export default function ClientsPage() {
   const [addrClient, setAddrClient] = useState<Client | null>(null)
   const [editingAddr, setEditingAddr] = useState<ClientAddress | null>(null)
   const [expandedAddressClientIds, setExpandedAddressClientIds] = useState<number[]>([])
+  const [search, setSearch] = useState("")
   const addrForm = useForm<AddressFormData>()
 
   const { data: clients = [] } = useQuery<Client[]>({
     queryKey: ["clients"],
     queryFn: () => listClients(),
   })
+  const { data: invoices = [] } = useQuery<InvoiceRecord[]>({ queryKey: ["invoices"], queryFn: listInvoices })
+  const invoicesByClient = useMemo(() => {
+    const groups = new Map<number, InvoiceRecord[]>()
+    for (const r of invoices) {
+      if (r.client_id == null) continue
+      groups.set(r.client_id, [...(groups.get(r.client_id) ?? []), r])
+    }
+    for (const list of groups.values()) list.sort((a, b) => (b.issue_date ?? "").localeCompare(a.issue_date ?? ""))
+    return groups
+  }, [invoices])
+  const visibleClients = clients.filter((c) =>
+    matchesSearch(search, [c.name, c.email, c.phone, c.client_code, ...c.addresses.flatMap((a) => [a.label, a.address])]),
+  )
 
   // ── Client mutations ────────────────────────────────────────────────
   const saveClientMutation = useMutation({
@@ -141,14 +226,22 @@ export default function ClientsPage() {
         <Button className="min-h-12 w-full sm:w-auto" onClick={openCreateClient}><Plus className="mr-1.5 h-4 w-4" />Add client</Button>
       </div>
 
+      {clients.length > 0 && (
+        <SearchInput value={search} onChange={setSearch} label="Search clients" placeholder="Search by name, email, phone, or address" />
+      )}
+
       {clients.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground text-sm">
           <Users className="h-8 w-8 mx-auto mb-2 opacity-40" />
           No clients yet.
         </div>
+      ) : visibleClients.length === 0 ? (
+        <div className="py-12 text-center text-sm text-muted-foreground">
+          No clients match &ldquo;{search}&rdquo;.
+        </div>
       ) : (
         <div className="space-y-4">
-          {clients.map((c) => {
+          {visibleClients.map((c) => {
             const hasManyAddresses = c.addresses.length > 1
             const addressesExpanded = !hasManyAddresses || expandedAddressClientIds.includes(c.id)
             const AddressChevron = addressesExpanded ? ChevronDown : ChevronRight
@@ -255,6 +348,8 @@ export default function ClientsPage() {
                   </Table>
                 )}
               </div>
+
+              <ClientInvoices client={c} invoices={invoicesByClient.get(c.id) ?? []} />
             </div>
             )
           })}
