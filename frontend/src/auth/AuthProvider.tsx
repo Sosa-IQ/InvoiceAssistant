@@ -4,12 +4,13 @@ import type { Session } from "@supabase/supabase-js"
 import { toast } from "sonner"
 import { AuthContext } from "@/auth/AuthContext"
 import { getCurrentUserProfile } from "@/api/auth"
-import { isSupabaseConfigured, supabase } from "@/lib/supabase"
+import { initialAuthRedirect, isSupabaseConfigured, supabase } from "@/lib/supabase"
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient()
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [passwordRecovery, setPasswordRecovery] = useState(Boolean(initialAuthRedirect?.recovery))
   const previousUserIdRef = useRef<string | null>(null)
   // Monotonic id for each bootstrap. Only the latest generation owns the shared
   // session/profile/loading state; a stale overlapping call (e.g. an older
@@ -54,7 +55,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true)
       const nextUserId = nextSession?.user.id ?? null
       if (previousUserIdRef.current !== nextUserId) {
         setLoading(true)
@@ -71,6 +73,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         user: session?.user ?? null,
         loading,
+        passwordRecovery,
+        endPasswordRecovery: () => setPasswordRecovery(false),
         signOut: async () => {
           await supabase.auth.signOut()
         },

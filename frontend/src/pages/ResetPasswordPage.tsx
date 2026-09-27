@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/auth/AuthContext"
-import { supabase } from "@/lib/supabase"
+import { initialAuthRedirect, supabase } from "@/lib/supabase"
 import { APP_INITIALS, APP_NAME } from "@/lib/brand"
 import PageLoading from "@/components/PageLoading"
 
@@ -20,11 +20,14 @@ type ResetFormData = {
 const LINK_GRACE_MS = 4000
 
 /**
- * Landing page for the password-recovery email link. Supabase turns the link's token into a
- * session, so a signed-in user here can set a new password.
+ * Landing page for the password-recovery email link. Supabase turns the link's single-use token
+ * into a session; the form is offered only for that recovery session, never to someone who is
+ * merely signed in (e.g. reopening an already-used link while still logged in).
  */
 export default function ResetPasswordPage() {
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, passwordRecovery, endPasswordRecovery } = useAuth()
+  const linkRejected = Boolean(initialAuthRedirect.error)
+  const canReset = Boolean(user) && passwordRecovery && !linkRejected
   const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
   const [linkExpired, setLinkExpired] = useState(false)
@@ -35,16 +38,17 @@ export default function ResetPasswordPage() {
   } = useForm<ResetFormData>()
 
   useEffect(() => {
-    if (user) return
+    if (canReset || linkRejected) return
     const timer = window.setTimeout(() => setLinkExpired(true), LINK_GRACE_MS)
     return () => window.clearTimeout(timer)
-  }, [user])
+  }, [canReset, linkRejected])
 
   async function onSubmit(values: ResetFormData) {
     setSaving(true)
     try {
       const { error } = await supabase.auth.updateUser({ password: values.password })
       if (error) throw error
+      endPasswordRecovery()
       toast.success("Password updated.")
       navigate("/invoices", { replace: true })
     } catch (error) {
@@ -54,7 +58,8 @@ export default function ResetPasswordPage() {
     }
   }
 
-  if (!user && (authLoading || !linkExpired)) return <PageLoading />
+  // Wait briefly for Supabase to exchange a fresh link before calling it invalid.
+  if (!canReset && !linkRejected && (authLoading || !linkExpired)) return <PageLoading />
 
   return (
     <div className="grid min-h-dvh place-items-center bg-background px-4 py-8">
@@ -66,7 +71,7 @@ export default function ResetPasswordPage() {
           <p className="font-black">{APP_NAME}</p>
         </div>
 
-        {!user ? (
+        {!canReset ? (
           <div className="space-y-4">
             <h1 className="text-xl font-black">This link is invalid or expired</h1>
             <p className="text-sm leading-6 text-muted-foreground">Reset links can only be used once and expire after a short time. Request a new one to continue.</p>
@@ -81,7 +86,7 @@ export default function ResetPasswordPage() {
                 <KeyRound aria-hidden="true" className="h-5 w-5 text-primary" />
                 Choose a new password
               </h1>
-              <p className="break-all text-sm text-muted-foreground">For {user.email}</p>
+              <p className="break-all text-sm text-muted-foreground">For {user?.email}</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="reset-password">New password</Label>

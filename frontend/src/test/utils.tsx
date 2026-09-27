@@ -24,6 +24,8 @@ export function mockAuthValue(overrides: Partial<AuthContextValue> = {}): AuthCo
     session: null as Session | null,
     user: mockUser(),
     loading: false,
+    passwordRecovery: false,
+    endPasswordRecovery: () => {},
     signOut: async () => {},
     ...overrides,
   }
