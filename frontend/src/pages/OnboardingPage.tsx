@@ -7,12 +7,12 @@ import { getSettings, updateSettings } from "@/api/settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { CURRENCIES, PAYMENT_TERMS, PAYMENT_TERMS_HELP } from "@/lib/paymentTerms"
 import PageLoading from "@/components/PageLoading"
 import type { BusinessSettings } from "@/types/invoice"
 
 const STEPS = ["Your business", "Invoice defaults", "Review"] as const
-const CURRENCIES = ["USD", "CAD", "EUR", "GBP"]
-const PAYMENT_TERMS = ["Due on receipt", "Net 7", "Net 15", "Net 30", "Net 45", "Net 60"]
 
 function BrandMark() {
   return (
@@ -30,6 +30,7 @@ function SetupForm({ settings }: { settings: BusinessSettings }) {
   const [name, setName] = useState(settings.name ?? "")
   const [email, setEmail] = useState(settings.email ?? "")
   const [phone, setPhone] = useState(settings.phone ?? "")
+  const [address, setAddress] = useState(settings.address ?? "")
   const [currency, setCurrency] = useState(settings.default_currency || "USD")
   const [taxPct, setTaxPct] = useState(String(settings.default_tax_pct ?? 0))
   const [paymentTerms, setPaymentTerms] = useState(settings.payment_terms || "Net 30")
@@ -40,6 +41,7 @@ function SetupForm({ settings }: { settings: BusinessSettings }) {
       name: name.trim(),
       email: email.trim() || null,
       phone: phone.trim() || null,
+      address: address.trim() || null,
       default_currency: currency,
       default_tax_pct: Number.isFinite(Number(taxPct)) ? Number(taxPct) : 0,
       payment_terms: paymentTerms,
@@ -99,6 +101,11 @@ function SetupForm({ settings }: { settings: BusinessSettings }) {
                   <Label htmlFor="business-name" className="text-sm font-bold">Business name</Label>
                   <Input id="business-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="organization" className="min-h-12 rounded-xl border-[#cfc9bd] bg-white text-base" />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="business-address" className="text-sm font-bold">Business address <span className="font-normal text-[#6d807a]">(optional)</span></Label>
+                  <Textarea id="business-address" value={address} onChange={(event) => setAddress(event.target.value)} autoComplete="street-address" rows={3} placeholder={"123 Main St\nSpringfield, IL 62701"} className="resize-none rounded-xl border-[#cfc9bd] bg-white text-base" />
+                  <p className="text-xs text-[#6d807a]">Shown on your invoices.</p>
+                </div>
                 <div className="grid gap-5 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="business-email" className="text-sm font-bold">Business email <span className="font-normal text-[#6d807a]">(optional)</span></Label>
@@ -135,6 +142,7 @@ function SetupForm({ settings }: { settings: BusinessSettings }) {
                   <select id="payment-terms" value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} className="flex min-h-12 w-full rounded-xl border border-[#cfc9bd] bg-white px-3 text-base outline-none focus:ring-2 focus:ring-[#ff6b55]">
                     {PAYMENT_TERMS.map((value) => <option key={value} value={value}>{value}</option>)}
                   </select>
+                  <p className="text-xs leading-5 text-[#6d807a]">{PAYMENT_TERMS_HELP}</p>
                 </div>
               </div>
             )}
@@ -148,6 +156,7 @@ function SetupForm({ settings }: { settings: BusinessSettings }) {
                 <dl className="divide-y divide-[#e7e1d6] rounded-2xl border border-[#ded8cd] bg-white px-5">
                   <div className="py-4"><dt className="text-xs font-bold uppercase tracking-wide text-[#6d807a]">Business</dt><dd className="mt-1 font-bold">{name.trim()}</dd></div>
                   <div className="py-4"><dt className="text-xs font-bold uppercase tracking-wide text-[#6d807a]">Contact</dt><dd className="mt-1 text-sm">{email.trim() || phone.trim() || "Not provided"}</dd></div>
+                  <div className="py-4"><dt className="text-xs font-bold uppercase tracking-wide text-[#6d807a]">Address</dt><dd className="mt-1 whitespace-pre-line text-sm">{address.trim() || "Not provided"}</dd></div>
                   <div className="py-4"><dt className="text-xs font-bold uppercase tracking-wide text-[#6d807a]">Invoice defaults</dt><dd className="mt-1 text-sm">{currency} · {taxPct || "0"}% tax · {paymentTerms}</dd></div>
                 </dl>
                 {finishMutation.isError && <p role="alert" className="rounded-xl bg-[#fff0ed] p-3 text-sm font-semibold text-[#a93629]">Setup could not be saved. Your information is still here—please try again.</p>}

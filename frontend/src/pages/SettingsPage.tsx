@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { DeleteAccountSection } from "@/components/DeleteAccountSection"
 import { getSettings, updateSettings } from "@/api/settings"
+import { CURRENCIES, PAYMENT_TERMS, PAYMENT_TERMS_HELP } from "@/lib/paymentTerms"
 import type { BusinessSettings } from "@/types/invoice"
 
 type SettingsFormData = Omit<BusinessSettings, "id" | "user_id" | "updated_at" | "onboarding_completed" | "onboarding_completed_at">
@@ -87,6 +88,29 @@ export default function SettingsPage() {
             <div className="space-y-1.5"><Label>Email</Label><Input {...register("email")} type="email" /></div>
             <div className="space-y-1.5"><Label>Phone</Label><Input {...register("phone")} /></div>
           </div>
+        </section>
+
+        <section className="space-y-4 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
+          <h2 className="text-sm font-black uppercase tracking-[0.12em] text-muted-foreground">Invoice defaults</h2>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="settings-currency">Currency</Label>
+              <select id="settings-currency" {...register("default_currency")} className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
+                {CURRENCIES.map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="settings-tax">Default tax rate (%)</Label>
+              <Input id="settings-tax" type="number" min="0" max="100" step="0.01" {...register("default_tax_pct", { valueAsNumber: true })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="settings-terms">Payment terms</Label>
+              <select id="settings-terms" {...register("payment_terms")} className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
+                {PAYMENT_TERMS.map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">{PAYMENT_TERMS_HELP}</p>
         </section>
 
         <section className="space-y-4 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">

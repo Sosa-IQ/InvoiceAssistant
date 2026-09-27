@@ -110,6 +110,7 @@ describe("OnboardingPage", () => {
       name: "Merrick Design Co.",
       email: "hello@merrick.example",
       phone: "203-555-0198",
+      address: null,
       default_currency: "USD",
       default_tax_pct: 6.35,
       payment_terms: "Net 30",
