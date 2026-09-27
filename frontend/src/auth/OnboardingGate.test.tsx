@@ -25,7 +25,6 @@ function makeSettings(overrides: Partial<BusinessSettings> = {}): BusinessSettin
     tax_id: null,
     default_currency: "USD",
     default_tax_pct: 0,
-    payment_terms: "Net 30",
     bank_name: null,
     account_name: null,
     account_number: null,

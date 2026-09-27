@@ -60,7 +60,6 @@ class BusinessSettingsRead(BaseModel):
     tax_id: Optional[str] = None
     default_currency: str = "USD"
     default_tax_pct: float = 0.0
-    payment_terms: str = "Net 30"
     bank_name: Optional[str] = None
     account_name: Optional[str] = None
     account_number: Optional[str] = None
@@ -88,7 +87,6 @@ class BusinessSettingsUpdate(BaseModel):
     tax_id: Optional[str] = None
     default_currency: Optional[str] = None
     default_tax_pct: Optional[float] = None
-    payment_terms: Optional[str] = None
     bank_name: Optional[str] = None
     account_name: Optional[str] = None
     account_number: Optional[str] = None

@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { DeleteAccountSection } from "@/components/DeleteAccountSection"
 import { getSettings, updateSettings } from "@/api/settings"
 import { apiErrorMessage } from "@/api/client"
-import { CURRENCIES, PAYMENT_TERMS, PAYMENT_TERMS_HELP } from "@/lib/paymentTerms"
+import { CURRENCIES } from "@/lib/invoiceDefaults"
 import { EMAIL_TEMPLATE_PLACEHOLDERS, unknownPlaceholders } from "@/lib/emailTemplates"
 import type { BusinessSettings } from "@/types/invoice"
 
@@ -87,7 +87,7 @@ export default function SettingsPage() {
 
         <section className="space-y-4 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
           <h2 className="text-sm font-black uppercase tracking-[0.12em] text-muted-foreground">Invoice defaults</h2>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="settings-currency">Currency</Label>
               <select id="settings-currency" {...register("default_currency")} className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
@@ -98,14 +98,7 @@ export default function SettingsPage() {
               <Label htmlFor="settings-tax">Default tax rate (%)</Label>
               <Input id="settings-tax" type="number" min="0" max="100" step="0.01" {...register("default_tax_pct", { valueAsNumber: true })} />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="settings-terms">Payment terms</Label>
-              <select id="settings-terms" {...register("payment_terms")} className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
-                {PAYMENT_TERMS.map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
-            </div>
           </div>
-          <p className="text-xs text-muted-foreground">{PAYMENT_TERMS_HELP}</p>
         </section>
 
         <section className="space-y-4 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">

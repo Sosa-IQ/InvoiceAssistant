@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { CURRENCIES, PAYMENT_TERMS, PAYMENT_TERMS_HELP } from "@/lib/paymentTerms"
+import { CURRENCIES } from "@/lib/invoiceDefaults"
 import PageLoading from "@/components/PageLoading"
 import type { BusinessSettings } from "@/types/invoice"
 
@@ -33,7 +33,6 @@ function SetupForm({ settings }: { settings: BusinessSettings }) {
   const [address, setAddress] = useState(settings.address ?? "")
   const [currency, setCurrency] = useState(settings.default_currency || "USD")
   const [taxPct, setTaxPct] = useState(String(settings.default_tax_pct ?? 0))
-  const [paymentTerms, setPaymentTerms] = useState(settings.payment_terms || "Net 30")
   const [validationError, setValidationError] = useState("")
 
   const finishMutation = useMutation({
@@ -44,7 +43,6 @@ function SetupForm({ settings }: { settings: BusinessSettings }) {
       address: address.trim() || null,
       default_currency: currency,
       default_tax_pct: Number.isFinite(Number(taxPct)) ? Number(taxPct) : 0,
-      payment_terms: paymentTerms,
       onboarding_completed: true,
     }),
     onSuccess: async () => {
@@ -137,13 +135,6 @@ function SetupForm({ settings }: { settings: BusinessSettings }) {
                     <Input id="tax-rate" type="number" min="0" max="100" step="0.01" value={taxPct} onChange={(event) => setTaxPct(event.target.value)} className="min-h-12 rounded-xl border-[#cfc9bd] bg-white text-base" />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="payment-terms" className="text-sm font-bold">Payment terms</Label>
-                  <select id="payment-terms" value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} className="flex min-h-12 w-full rounded-xl border border-[#cfc9bd] bg-white px-3 text-base outline-none focus:ring-2 focus:ring-[#ff6b55]">
-                    {PAYMENT_TERMS.map((value) => <option key={value} value={value}>{value}</option>)}
-                  </select>
-                  <p className="text-xs leading-5 text-[#6d807a]">{PAYMENT_TERMS_HELP}</p>
-                </div>
               </div>
             )}
 
@@ -157,7 +148,7 @@ function SetupForm({ settings }: { settings: BusinessSettings }) {
                   <div className="py-4"><dt className="text-xs font-bold uppercase tracking-wide text-[#6d807a]">Business</dt><dd className="mt-1 font-bold">{name.trim()}</dd></div>
                   <div className="py-4"><dt className="text-xs font-bold uppercase tracking-wide text-[#6d807a]">Contact</dt><dd className="mt-1 text-sm">{email.trim() || phone.trim() || "Not provided"}</dd></div>
                   <div className="py-4"><dt className="text-xs font-bold uppercase tracking-wide text-[#6d807a]">Address</dt><dd className="mt-1 whitespace-pre-line text-sm">{address.trim() || "Not provided"}</dd></div>
-                  <div className="py-4"><dt className="text-xs font-bold uppercase tracking-wide text-[#6d807a]">Invoice defaults</dt><dd className="mt-1 text-sm">{currency} · {taxPct || "0"}% tax · {paymentTerms}</dd></div>
+                  <div className="py-4"><dt className="text-xs font-bold uppercase tracking-wide text-[#6d807a]">Invoice defaults</dt><dd className="mt-1 text-sm">{currency} · {taxPct || "0"}% tax</dd></div>
                 </dl>
                 {finishMutation.isError && <p role="alert" className="rounded-xl bg-[#fff0ed] p-3 text-sm font-semibold text-[#a93629]">Setup could not be saved. Your information is still here—please try again.</p>}
               </div>
