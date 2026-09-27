@@ -5,6 +5,7 @@ import { renderWithProviders } from "@/test/utils"
 import type { InvoiceData, InvoiceRecord } from "@/types/invoice"
 
 const navigate = vi.fn()
+const blocker = vi.hoisted(() => ({ current: { state: "unblocked" } as { state: string; reset?: () => void; proceed?: () => void } }))
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-router-dom")>()
@@ -12,7 +13,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
     ...actual,
     useLocation: () => ({ pathname: "/invoices/editor", state: { invoice } }),
     useNavigate: () => navigate,
-    useBlocker: () => ({ state: "unblocked" }),
+    useBlocker: () => blocker.current,
   }
 })
 
@@ -85,6 +86,7 @@ const savedRecord: InvoiceRecord = {
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  blocker.current = { state: "unblocked" }
   vi.mocked(getUsageStatus).mockResolvedValue({
     email_monthly_limit: null,
     emails_sent_this_period: 0,
@@ -135,3 +137,42 @@ describe("InvoiceEditorPage save-first flow (R1)", () => {
     expect(screen.getByRole("button", { name: /download pdf/i })).toBeInTheDocument()
   })
 })
+
+describe("InvoiceEditorPage drafts and guards", () => {
+  it("restores in-progress edits after a refresh instead of the original invoice", async () => {
+    const user = userEvent.setup()
+    const first = renderWithProviders(<InvoiceEditorPage />)
+    const description = await screen.findByDisplayValue("Work")
+    await user.clear(description)
+    await user.type(description, "Work, revised")
+    first.unmount()
+
+    // Same navigation state, as after a browser refresh.
+    renderWithProviders(<InvoiceEditorPage />)
+    expect(await screen.findByDisplayValue("Work, revised")).toBeInTheDocument()
+  })
+
+  it("won't save a line item without a description", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<InvoiceEditorPage />)
+    await user.clear(await screen.findByDisplayValue("Work"))
+    await user.click(screen.getByRole("button", { name: /^save$/i }))
+
+    expect(await screen.findByText("Add a description")).toBeInTheDocument()
+    expect(saveInvoice).not.toHaveBeenCalled()
+  })
+
+  it("asks in the app, not the browser, before leaving with unsaved changes", async () => {
+    const reset = vi.fn()
+    const proceed = vi.fn()
+    blocker.current = { state: "blocked", reset, proceed }
+    const user = userEvent.setup()
+    renderWithProviders(<InvoiceEditorPage />)
+
+    expect(await screen.findByRole("heading", { name: "Leave without saving?" })).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Keep editing" }))
+    expect(reset).toHaveBeenCalled()
+    expect(proceed).not.toHaveBeenCalled()
+  })
+})
+
