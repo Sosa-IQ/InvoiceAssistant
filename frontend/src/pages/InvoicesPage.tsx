@@ -355,7 +355,7 @@ export default function InvoicesPage() {
             <Button type="button" variant="ghost" className="h-10" disabled={!filtersActive} onClick={() => setFilters(NO_FILTERS)}>
               Clear filters
             </Button>
-            <div className="space-y-1 md:hidden">
+            <div className="space-y-1 xl:hidden">
               <label htmlFor="sort-mobile" className="text-xs font-medium text-muted-foreground">Sort by</label>
               <select
                 id="sort-mobile"
@@ -401,7 +401,7 @@ export default function InvoicesPage() {
           </div>
         ) : (
           <>
-            <div className="space-y-3 md:hidden">
+            <div className="space-y-3 xl:hidden">
               {visible.map((r) => (
                 <article key={r.id} className="rounded-2xl border bg-background/40 p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -449,40 +449,41 @@ export default function InvoicesPage() {
                 </article>
               ))}
             </div>
-            <div className="hidden md:block">
+            <div className="hidden xl:block">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <SortHeader label="Filename" sortKey="filename" sort={sort} onSort={toggleSort} />
                     <SortHeader label="Invoice #" sortKey="invoice_number" sort={sort} onSort={toggleSort} />
                     <SortHeader label="Client" sortKey="client_name" sort={sort} onSort={toggleSort} />
                     <SortHeader label="Date" sortKey="issue_date" sort={sort} onSort={toggleSort} />
                     <SortHeader label="Total" sortKey="grand_total" sort={sort} onSort={toggleSort} align="right" />
                     <SortHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
-                    <TableHead className="w-20"><span className="sr-only">Actions</span></TableHead>
+                    <TableHead className="text-right"><span className="sr-only">Actions</span></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {visible.map((r) => (
                     <TableRow key={r.id}>
-                      <TableCell className="max-w-40 truncate font-mono text-xs">{r.filename}</TableCell>
-                      <TableCell>{r.invoice_number ?? "—"}</TableCell>
-                      <TableCell>{r.client_name ?? "—"}</TableCell>
+                      <TableCell className="max-w-44 truncate" title={r.invoice_number ?? r.filename}>
+                        {r.invoice_number ?? <span className="font-mono text-xs">{r.filename}</span>}
+                      </TableCell>
+                      <TableCell className="max-w-48 truncate" title={r.client_name ?? undefined}>{r.client_name ?? "—"}</TableCell>
                       <TableCell>{r.issue_date ?? "—"}</TableCell>
                       <TableCell className="text-right">{fmt(r.grand_total, r.currency)}</TableCell>
                       <TableCell>
                         <StatusControl r={r} />
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-0.5">
+                        <div className="flex items-center justify-end gap-0.5 whitespace-nowrap">
                           {canView(r) && (
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-11 w-11"
+                              className="h-9 w-9"
                               onClick={() => handleView(r)}
                               disabled={viewingId === r.id}
                               title="View PDF"
+                              aria-label="View PDF"
                             >
                               {viewingId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
                             </Button>
@@ -491,7 +492,7 @@ export default function InvoicesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-11 w-11"
+                              className="h-9 w-9"
                               onClick={() => handleDownload(r)}
                               disabled={downloadingId === r.id}
                               title="Download PDF"
@@ -501,7 +502,7 @@ export default function InvoicesPage() {
                             </Button>
                           )}
                           {r.source === "generated" && r.invoice_json && (
-                            <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => handleEdit(r)} title="Edit invoice">
+                            <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => handleEdit(r)} title="Edit invoice" aria-label="Edit invoice">
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
                           )}
@@ -509,9 +510,10 @@ export default function InvoicesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-11 w-11 text-muted-foreground"
+                              className="h-9 w-9 text-muted-foreground"
                               onClick={() => handleOpenSendDialog(r)}
                               title="Email invoice"
+                              aria-label="Email invoice"
                             >
                               <Mail className="h-3.5 w-3.5" />
                             </Button>
@@ -519,10 +521,11 @@ export default function InvoicesPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-11 w-11 text-muted-foreground hover:text-destructive"
+                            className="h-9 w-9 text-muted-foreground hover:text-destructive"
                             onClick={() => handleDelete(r)}
                             disabled={deletingId === r.id}
                             title="Delete invoice"
+                            aria-label="Delete invoice"
                           >
                             {deletingId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                           </Button>
