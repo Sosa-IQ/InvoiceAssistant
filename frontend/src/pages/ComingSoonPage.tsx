@@ -14,7 +14,7 @@ const HIGHLIGHTS = [
   },
   {
     icon: Mic,
-    title: "Voice input",
+    title: "AI Voice input",
     body: "Speak the job when your hands are full. Cuenvia writes it up.",
   },
   {

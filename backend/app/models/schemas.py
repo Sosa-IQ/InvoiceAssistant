@@ -463,6 +463,8 @@ class BillingPlansResponse(BaseModel):
     configured: bool
     enforcement_enabled: bool
     plans: list[BillingPlanRead]
+    # Single source for the Free email allowance shown in marketing and pricing copy.
+    free_monthly_email_limit: int
 
 
 class BillingStatusRead(BaseModel):

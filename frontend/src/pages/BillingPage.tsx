@@ -125,8 +125,8 @@ export default function BillingPage() {
 
         {!status.configured && (
           <div className="mt-6 rounded-2xl border border-[#e4b7ad] bg-[#fff0ed] p-4">
-            <p className="font-bold text-[#8d382d]">Billing is not configured yet</p>
-            <p className="mt-1 text-sm leading-6 text-[#76514b]">Add the Stripe environment variables on the server before testing checkout. No subscription changes are available until then.</p>
+            <p className="font-bold text-[#8d382d]">Upgrades are temporarily unavailable</p>
+            <p className="mt-1 text-sm leading-6 text-[#76514b]">Your Free plan keeps working. Please check back soon to upgrade.</p>
           </div>
         )}
       </section>

@@ -79,7 +79,7 @@ def _free_features() -> list[str]:
 _PRO_FEATURES = [
     "Unlimited invoice email delivery",
     "AI-assisted drafting and edits",
-    "Voice input",
+    "AI Voice input",
     "Automatic smart suggestions from your invoices",
 ]
 
@@ -311,6 +311,7 @@ async def get_plans() -> BillingPlansResponse:
         configured=settings.stripe_configured,
         enforcement_enabled=settings.billing_enforcement_enabled,
         plans=plans,
+        free_monthly_email_limit=settings.free_monthly_email_limit,
     )
 
 

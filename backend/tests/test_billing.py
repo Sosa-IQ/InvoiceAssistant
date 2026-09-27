@@ -310,7 +310,7 @@ async def test_plans_use_stripe_authoritative_price_not_env_display(billing_api_
         "features": [
             "Unlimited invoice email delivery",
             "AI-assisted drafting and edits",
-            "Voice input",
+            "AI Voice input",
             "Automatic smart suggestions from your invoices",
         ],
     }

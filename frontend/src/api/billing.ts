@@ -13,6 +13,7 @@ export type BillingPlansResponse = {
   configured: boolean
   enforcement_enabled: boolean
   plans: BillingPlan[]
+  free_monthly_email_limit: number
 }
 
 export type BillingStatus = {

@@ -18,6 +18,7 @@ import PricingPage from "./PricingPage"
 const plans: BillingPlansResponse = {
   configured: true,
   enforcement_enabled: false,
+  free_monthly_email_limit: 5,
   plans: [
     { code: "free", name: "Free", price_cents: 0, currency: "USD", interval: "month", features: ["Create and edit invoices"] },
     { code: "pro", name: "Pro", price_cents: 1200, currency: "USD", interval: "month", features: ["Email invoice delivery", "AI-assisted drafting and edits", "Voice input"] },
@@ -91,8 +92,8 @@ describe("PricingPage", () => {
   it("disables paid checkout when Stripe is not configured", async () => {
     vi.mocked(getBillingPlans).mockResolvedValue({ ...plans, configured: false })
     renderWithProviders(<Harness />, { initialEntries: ["/pricing"] })
-    const button = await screen.findByRole("button", { name: /billing setup required/i })
+    const button = await screen.findByRole("button", { name: /pro unavailable right now/i })
     expect(button).toBeDisabled()
-    expect(screen.getByText(/not configured yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/pro sign-ups are temporarily unavailable/i)).toBeInTheDocument()
   })
 })

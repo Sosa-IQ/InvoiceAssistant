@@ -4,6 +4,7 @@ import { ArrowRight, Check, Loader2 } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { createCheckoutSession, getBillingPlans, type BillingPlan } from "@/api/billing"
+import { freeEmailPhrase } from "@/hooks/useFreeEmailLimit"
 import { useAuth } from "@/auth/AuthContext"
 import { Button } from "@/components/ui/button"
 import PageLoading from "@/components/PageLoading"
@@ -103,7 +104,7 @@ export default function PricingPage() {
           <p className="text-sm font-black uppercase tracking-[0.16em] text-[#e45441]">Pricing</p>
           <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Simple plans. No mystery.</h1>
           <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-[#557067]">
-            Free covers manual invoicing, PDFs, and 5 invoice emails a month. Pro adds unlimited email, AI drafting and edits, and voice.
+            Free covers manual invoicing, PDFs, and {freeEmailPhrase(plansQuery.data.free_monthly_email_limit)}. Pro adds unlimited email, AI drafting and edits, and AI voice input.
           </p>
         </div>
 
@@ -114,7 +115,7 @@ export default function PricingPage() {
 
         {!configured && (
           <p className="mx-auto mt-8 max-w-xl rounded-2xl border border-[#e4b7ad] bg-[#fff0ed] p-4 text-center text-sm font-semibold text-[#8d382d]">
-            Paid billing is not configured yet. The Free plan remains available.
+            Pro sign-ups are temporarily unavailable. The Free plan is ready to use.
           </p>
         )}
 
@@ -227,12 +228,6 @@ export default function PricingPage() {
                   </li>
                 ))}
               </ul>
-              {proInterval === "month" && (
-                <p className="mt-4 rounded-xl border border-[#9dbb63]/60 bg-[#fffdf8]/80 px-3 py-2 text-xs leading-5 text-[#31533f]">
-                  At Checkout, the launch promo is applied automatically when configured, or enter your promotion code
-                  if shown.
-                </p>
-              )}
               <Button
                 type="button"
                 disabled={!configured || checkout.isPending || !selectedPro}
@@ -244,16 +239,13 @@ export default function PricingPage() {
                   ? proInterval === "year" && hasYearly
                     ? "Choose Pro yearly"
                     : "Choose Pro monthly"
-                  : "Billing setup required"}
+                  : "Pro unavailable right now"}
                 {(!checkout.isPending) && <ArrowRight className="h-4 w-4" />}
               </Button>
             </section>
           )}
         </div>
 
-        <p className="mt-8 text-center text-xs leading-5 text-[#6d807a]">
-          Plan enforcement stays off until billing is configured and explicitly enabled by the operator.
-        </p>
       </main>
     </div>
   )
