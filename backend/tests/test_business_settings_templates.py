@@ -215,7 +215,8 @@ async def test_put_settings_persists_custom_templates(seeded_api) -> None:
     assert refetched.json()["default_email_message"] == "Hi {client_name}, total due: {total} {currency}."
 
 
-async def test_put_settings_rejects_unknown_placeholder(seeded_api) -> None:
+async def test_put_settings_keeps_unknown_placeholder_literally(seeded_api) -> None:
+    """Unrecognized braces are saved as typed; the Settings page warns instead of the API refusing."""
     request, owner, _ = seeded_api
 
     response = await request(
@@ -224,8 +225,8 @@ async def test_put_settings_rejects_unknown_placeholder(seeded_api) -> None:
         "/api/settings",
         json={"default_email_subject": "Invoice {secret_field}"},
     )
-    assert response.status_code == 422, response.text
-    assert "unknown placeholder" in response.text.lower()
+    assert response.status_code == 200, response.text
+    assert response.json()["default_email_subject"] == "Invoice {secret_field}"
 
 
 async def test_put_settings_rejects_overlong_message(seeded_api) -> None:
