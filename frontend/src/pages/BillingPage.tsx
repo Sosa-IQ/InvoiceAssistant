@@ -9,11 +9,33 @@ import {
   getBillingStatus,
   type PackKind,
 } from "@/api/billing"
+import { useEmailAllowance } from "@/hooks/useEmailAllowance"
 import AiUsageCard from "@/components/AiUsageCard"
 import { Button } from "@/components/ui/button"
 import PageLoading from "@/components/PageLoading"
 import { LAUNCH_PROMO_BLURB, LAUNCH_PROMO_SHORT } from "@/lib/brand"
 import { redirectToStripe } from "@/lib/externalNavigation"
+
+function FreeEmailUsageCard() {
+  const { limit, used, remaining, periodEnd } = useEmailAllowance()
+  if (limit === null) return null
+  const ratio = limit > 0 ? Math.min(1, used / limit) : 1
+  const resets = periodEnd ? new Date(periodEnd).toLocaleDateString(undefined, { month: "long", day: "numeric" }) : null
+  return (
+    <section className="rounded-[24px] border bg-card p-5 shadow-sm sm:p-6" aria-labelledby="free-email-usage">
+      <h2 id="free-email-usage" className="text-lg font-black">Invoice emails this month</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {Math.min(used, limit)} of {limit} used{resets ? ` · resets ${resets}` : ""}
+      </p>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={limit} aria-valuenow={Math.min(used, limit)} aria-label="Invoice emails used">
+        <div className="h-full rounded-full bg-primary" style={{ width: `${ratio * 100}%` }} />
+      </div>
+      {remaining === 0 && (
+        <p className="mt-3 text-sm font-medium">You've used this month's free emails. Pro includes unlimited email.</p>
+      )}
+    </section>
+  )
+}
 
 export default function BillingPage() {
   const [searchParams] = useSearchParams()
@@ -131,7 +153,7 @@ export default function BillingPage() {
         )}
       </section>
 
-      {isPro && <AiUsageCard />}
+      {isPro ? <AiUsageCard /> : <FreeEmailUsageCard />}
 
       {isPro && status.configured && (
         <section className="rounded-[24px] border bg-card p-5 shadow-sm sm:p-6">
