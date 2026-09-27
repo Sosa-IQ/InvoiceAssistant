@@ -1,7 +1,7 @@
-import { useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Upload, FileText, CheckCircle, XCircle, Loader2, Eye, Trash2, Pencil, Mail } from "lucide-react"
+import { Upload, FileText, CheckCircle, XCircle, Loader2, Eye, Trash2, Pencil, Mail, Download, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -17,12 +17,22 @@ import { ProUpgradeDialog } from "@/components/ProUpgradeDialog"
 import { useEmailAllowance } from "@/hooks/useEmailAllowance"
 import {
   deleteInvoice,
+  downloadInvoicePdf,
   listInvoices,
   openInvoicePdf,
   updateInvoiceStatus,
   uploadInvoices,
 } from "@/api/invoices"
 import type { InvoiceData, InvoiceRecord } from "@/types/invoice"
+import {
+  filterOptions,
+  filterRecords,
+  NO_FILTERS,
+  sortRecords,
+  type HistoryFilters,
+  type SortKey,
+  type SortState,
+} from "@/lib/invoiceHistory"
 
 const LIFECYCLE = new Set(["drafted", "sent", "paid"])
 
@@ -59,6 +69,40 @@ function fmt(val: number | null, currency = "USD") {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(val)
 }
 
+function SortHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+  align = "left",
+}: {
+  label: string
+  sortKey: SortKey
+  sort: SortState
+  onSort: (key: SortKey) => void
+  align?: "left" | "right"
+}) {
+  const active = sort.key === sortKey
+  const Icon = !active ? ArrowUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown
+  return (
+    <TableHead
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+      className={align === "right" ? "text-right" : undefined}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex min-h-9 items-center gap-1 rounded-md font-medium hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+          active ? "text-foreground" : ""
+        }`}
+      >
+        {label}
+        <Icon aria-hidden="true" className={`h-3.5 w-3.5 ${active ? "" : "opacity-40"}`} />
+      </button>
+    </TableHead>
+  )
+}
+
 export default function InvoicesPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -71,11 +115,40 @@ export default function InvoicesPage() {
   const [sendDialogRecord, setSendDialogRecord] = useState<InvoiceRecord | null>(null)
   const [proUpgradeOpen, setProUpgradeOpen] = useState(false)
   const { canEmail: hasEmailAllowance } = useEmailAllowance()
+  const [downloadingId, setDownloadingId] = useState<number | null>(null)
+  const [sort, setSort] = useState<SortState>({ key: "issue_date", dir: "desc" })
+  const [filters, setFilters] = useState<HistoryFilters>(NO_FILTERS)
 
   const { data: records = [], isLoading, isError, refetch } = useQuery<InvoiceRecord[]>({
     queryKey: ["invoices"],
     queryFn: listInvoices,
   })
+  const options = useMemo(() => filterOptions(records), [records])
+  const visible = useMemo(() => sortRecords(filterRecords(records, filters), sort), [records, filters, sort])
+  const filtersActive = JSON.stringify(filters) !== JSON.stringify(NO_FILTERS)
+
+  function toggleSort(key: SortKey) {
+    setSort((current) =>
+      current.key === key ? { key, dir: current.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "issue_date" || key === "grand_total" ? "desc" : "asc" },
+    )
+  }
+
+  async function handleDownload(r: InvoiceRecord) {
+    setDownloadingId(r.id)
+    try {
+      const blob = await downloadInvoicePdf(r.id)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = r.filename
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error("Could not download PDF.")
+    } finally {
+      setDownloadingId(null)
+    }
+  }
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return
@@ -251,8 +324,57 @@ export default function InvoicesPage() {
 
       <div className="rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
         <h2 className="mb-4 text-sm font-black uppercase tracking-[0.12em] text-muted-foreground">
-          History ({records.length})
+          History ({filtersActive ? `${visible.length} of ${records.length}` : records.length})
         </h2>
+        {records.length > 0 && (
+          <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto_auto_auto] lg:items-end">
+            <div className="space-y-1">
+              <label htmlFor="filter-client" className="text-xs font-medium text-muted-foreground">Client</label>
+              <select id="filter-client" value={filters.client} onChange={(e) => setFilters((f) => ({ ...f, client: e.target.value }))} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                <option value="">All clients</option>
+                {options.clients.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="filter-status" className="text-xs font-medium text-muted-foreground">Status</label>
+              <select id="filter-status" value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm capitalize">
+                <option value="">All statuses</option>
+                {options.statuses.map((st) => <option key={st} value={st}>{st.replace("_", " ")}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="filter-from" className="text-xs font-medium text-muted-foreground">From</label>
+              <input id="filter-from" type="date" value={filters.from} max={filters.to || undefined} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="filter-to" className="text-xs font-medium text-muted-foreground">To</label>
+              <input id="filter-to" type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" />
+            </div>
+            <Button type="button" variant="ghost" className="h-10" disabled={!filtersActive} onClick={() => setFilters(NO_FILTERS)}>
+              Clear filters
+            </Button>
+            <div className="space-y-1 md:hidden">
+              <label htmlFor="sort-mobile" className="text-xs font-medium text-muted-foreground">Sort by</label>
+              <select
+                id="sort-mobile"
+                value={`${sort.key}:${sort.dir}`}
+                onChange={(e) => {
+                  const [key, dir] = e.target.value.split(":") as [SortKey, "asc" | "desc"]
+                  setSort({ key, dir })
+                }}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="issue_date:desc">Newest first</option>
+                <option value="issue_date:asc">Oldest first</option>
+                <option value="grand_total:desc">Highest total</option>
+                <option value="grand_total:asc">Lowest total</option>
+                <option value="client_name:asc">Client A–Z</option>
+                <option value="invoice_number:asc">Invoice # A–Z</option>
+                <option value="status:asc">Status</option>
+              </select>
+            </div>
+          </div>
+        )}
         {isLoading ? (
           <div role="status" aria-live="polite" className="flex justify-center gap-2 py-10 text-sm text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -265,6 +387,11 @@ export default function InvoicesPage() {
               Retry
             </Button>
           </div>
+        ) : records.length > 0 && visible.length === 0 ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            No invoices match these filters.
+            <Button type="button" variant="link" onClick={() => setFilters(NO_FILTERS)}>Clear filters</Button>
+          </div>
         ) : records.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
             <FileText className="mx-auto mb-2 h-8 w-8 opacity-40" />
@@ -273,7 +400,7 @@ export default function InvoicesPage() {
         ) : (
           <>
             <div className="space-y-3 md:hidden">
-              {records.map((r) => (
+              {visible.map((r) => (
                 <article key={r.id} className="rounded-2xl border bg-background/40 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -298,6 +425,11 @@ export default function InvoicesPage() {
                         {viewingId === r.id ? <Loader2 className="animate-spin" /> : <Eye />} View
                       </Button>
                     )}
+                    {canView(r) && (
+                      <Button variant="outline" onClick={() => handleDownload(r)} disabled={downloadingId === r.id}>
+                        {downloadingId === r.id ? <Loader2 className="animate-spin" /> : <Download />} Download
+                      </Button>
+                    )}
                     {r.source === "generated" && r.invoice_json && (
                       <Button variant="outline" onClick={() => handleEdit(r)}>
                         <Pencil /> Edit
@@ -319,17 +451,17 @@ export default function InvoicesPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Filename</TableHead>
-                    <TableHead>Invoice #</TableHead>
-                    <TableHead>Client</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="w-20" />
+                    <SortHeader label="Filename" sortKey="filename" sort={sort} onSort={toggleSort} />
+                    <SortHeader label="Invoice #" sortKey="invoice_number" sort={sort} onSort={toggleSort} />
+                    <SortHeader label="Client" sortKey="client_name" sort={sort} onSort={toggleSort} />
+                    <SortHeader label="Date" sortKey="issue_date" sort={sort} onSort={toggleSort} />
+                    <SortHeader label="Total" sortKey="grand_total" sort={sort} onSort={toggleSort} align="right" />
+                    <SortHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
+                    <TableHead className="w-20"><span className="sr-only">Actions</span></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {records.map((r) => (
+                  {visible.map((r) => (
                     <TableRow key={r.id}>
                       <TableCell className="max-w-40 truncate font-mono text-xs">{r.filename}</TableCell>
                       <TableCell>{r.invoice_number ?? "—"}</TableCell>
@@ -351,6 +483,19 @@ export default function InvoicesPage() {
                               title="View PDF"
                             >
                               {viewingId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+                            </Button>
+                          )}
+                          {canView(r) && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-11 w-11"
+                              onClick={() => handleDownload(r)}
+                              disabled={downloadingId === r.id}
+                              title="Download PDF"
+                              aria-label="Download PDF"
+                            >
+                              {downloadingId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
                             </Button>
                           )}
                           {r.source === "generated" && r.invoice_json && (
