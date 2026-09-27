@@ -26,7 +26,6 @@ function makeSettings(overrides: Partial<BusinessSettings> = {}): BusinessSettin
     tax_id: null,
     default_currency: "USD",
     default_tax_pct: 6.35,
-    payment_terms: "Net 30",
     bank_name: null,
     account_name: null,
     account_number: null,
@@ -110,9 +109,9 @@ describe("OnboardingPage", () => {
       name: "Merrick Design Co.",
       email: "hello@merrick.example",
       phone: "203-555-0198",
+      address: null,
       default_currency: "USD",
       default_tax_pct: 6.35,
-      payment_terms: "Net 30",
       onboarding_completed: true,
     })
     expect(await screen.findByText("Invoices destination")).toBeInTheDocument()

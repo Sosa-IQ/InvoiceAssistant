@@ -107,7 +107,7 @@ describe("BillingPage", () => {
   it("shows configuration guidance instead of a dead checkout", async () => {
     vi.mocked(getBillingStatus).mockResolvedValue({ ...freeStatus, configured: false })
     renderWithProviders(<BillingPage />)
-    expect(await screen.findByText(/billing is not configured yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/upgrades are temporarily unavailable/i)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /upgrade to pro/i })).not.toBeInTheDocument()
   })
 })

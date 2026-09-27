@@ -19,6 +19,17 @@ type AuthFormData = {
 
 type AuthMode = "login" | "signup" | "forgot"
 
+/** Supabase's messages are written for developers; translate the ones people hit. */
+function friendlyAuthError(message: string): string {
+  const m = message.toLowerCase()
+  if (m.includes("invalid login credentials")) return "That email and password don't match. Try again or reset your password."
+  if (m.includes("email not confirmed")) return "Please confirm your email first. Check your inbox for the link we sent."
+  if (m.includes("rate limit")) return "Too many attempts. Please wait a few minutes and try again."
+  if (m.includes("captcha")) return "The security check didn't go through. Please try again."
+  if (m.includes("password")) return message
+  return "Something went wrong. Please try again."
+}
+
 export default function AuthPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -33,12 +44,23 @@ export default function AuthPage() {
   const [captchaKey, setCaptchaKey] = useState(0)
   const captchaRequired = TURNSTILE_SITE_KEY !== ""
   const captcha = captchaToken ?? undefined
-  const { register, handleSubmit } = useForm<AuthFormData>()
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<AuthFormData>()
+  // Shown inside the form for problems the user can fix (existing account, wrong password).
+  const [formError, setFormError] = useState<{ message: string; existingAccount?: boolean } | null>(null)
   const redirectTo = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/invoices"
 
   useEffect(() => {
     if (user) navigate(redirectTo, { replace: true })
   }, [navigate, redirectTo, user])
+
+  function switchMode(next: AuthMode) {
+    setFormError(null)
+    setMode(next)
+  }
 
   async function onSubmit(values: AuthFormData) {
     if (!isSupabaseConfigured) {
@@ -47,6 +69,7 @@ export default function AuthPage() {
     }
 
     setLoading(true)
+    setFormError(null)
     try {
       if (mode === "forgot") {
         const { error } = await supabase.auth.resetPasswordForEmail(values.email, {
@@ -65,6 +88,11 @@ export default function AuthPage() {
           options: { emailRedirectTo: `${window.location.origin}/invoices`, captchaToken: captcha },
         })
         if (error) throw error
+        // An already-registered email comes back as a user with no identities and no email is sent.
+        if (data.user && data.user.identities?.length === 0) {
+          setFormError({ message: "An account with this email already exists.", existingAccount: true })
+          return
+        }
         if (!data.session) {
           // Email confirmation is required before the account can sign in.
           setSentTo({ email: values.email, kind: "confirm" })
@@ -82,8 +110,7 @@ export default function AuthPage() {
       }
       navigate(redirectTo, { replace: true })
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Authentication failed."
-      toast.error(message)
+      setFormError({ message: friendlyAuthError(error instanceof Error ? error.message : "") })
     } finally {
       setLoading(false)
       if (captchaRequired) setCaptchaKey((key) => key + 1)
@@ -154,7 +181,7 @@ export default function AuthPage() {
                   <Button
                     type="button"
                     variant={mode === "login" ? "default" : "outline"}
-                    onClick={() => setMode("login")}
+                    onClick={() => switchMode("login")}
                     className="min-h-11 rounded-xl"
                   >
                     Log In
@@ -162,7 +189,7 @@ export default function AuthPage() {
                   <Button
                     type="button"
                     variant={mode === "signup" ? "default" : "outline"}
-                    onClick={() => setMode("signup")}
+                    onClick={() => switchMode("signup")}
                     className="min-h-11 rounded-xl"
                   >
                     <UserPlus aria-hidden="true" className="mr-1.5 h-4 w-4" />
@@ -174,7 +201,14 @@ export default function AuthPage() {
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
                 <div className="space-y-1.5">
                   <Label htmlFor="auth-email">Email</Label>
-                  <Input id="auth-email" type="email" autoComplete="email" {...register("email", { required: true })} />
+                  <Input
+                    id="auth-email"
+                    type="email"
+                    autoComplete="email"
+                    aria-invalid={Boolean(errors.email)}
+                    {...register("email", { required: "Enter your email address." })}
+                  />
+                  {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
                 </div>
                 {mode !== "forgot" && (
                   <div className="space-y-1.5">
@@ -183,23 +217,39 @@ export default function AuthPage() {
                       {mode === "login" && (
                         <button
                           type="button"
-                          onClick={() => setMode("forgot")}
+                          onClick={() => switchMode("forgot")}
                           className="text-sm font-bold text-primary underline-offset-4 hover:underline"
                         >
                           Forgot password?
                         </button>
                       )}
                     </div>
-                    <Input id="auth-password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} {...register("password", { required: true, minLength: 8, shouldUnregister: true })} />
+                    <Input id="auth-password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} aria-invalid={Boolean(errors.password)} {...register("password", { required: "Enter your password.", minLength: { value: 8, message: "Use at least 8 characters." }, shouldUnregister: true })} />
+                    {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
                   </div>
                 )}
                 {captchaRequired && <Turnstile key={captchaKey} onToken={setCaptchaToken} />}
+                {formError && (
+                  <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm">
+                    <p className="font-medium text-destructive">{formError.message}</p>
+                    {formError.existingAccount && (
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-bold">
+                        <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => switchMode("login")}>
+                          Log in instead
+                        </button>
+                        <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => switchMode("forgot")}>
+                          Reset your password
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <Button type="submit" className="min-h-12 w-full rounded-xl" disabled={loading || (captchaRequired && !captchaToken)}>
                   {loading && <Loader2 aria-hidden="true" className="mr-1.5 h-4 w-4 animate-spin" />}
                   {mode === "signup" ? "Create Account" : mode === "forgot" ? "Send reset link" : "Log In"}
                 </Button>
                 {mode === "forgot" && (
-                  <Button type="button" variant="ghost" className="min-h-11 w-full rounded-xl" onClick={() => setMode("login")}>
+                  <Button type="button" variant="ghost" className="min-h-11 w-full rounded-xl" onClick={() => switchMode("login")}>
                     Back to log in
                   </Button>
                 )}

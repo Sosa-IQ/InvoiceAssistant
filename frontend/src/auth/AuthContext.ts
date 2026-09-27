@@ -5,6 +5,9 @@ export type AuthContextValue = {
   session: Session | null
   user: User | null
   loading: boolean
+  /** True only after arriving from a password-recovery email link. */
+  passwordRecovery: boolean
+  endPasswordRecovery: () => void
   signOut: () => Promise<void>
 }
 

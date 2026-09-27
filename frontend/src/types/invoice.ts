@@ -140,7 +140,6 @@ export interface BusinessSettings {
   tax_id: string | null
   default_currency: string
   default_tax_pct: number
-  payment_terms: string
   bank_name: string | null
   account_name: string | null
   account_number: string | null

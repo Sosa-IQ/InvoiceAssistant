@@ -62,23 +62,20 @@ def test_update_accepts_all_allowed_placeholders_in_message() -> None:
     assert update.default_email_message == message
 
 
-def test_update_rejects_unknown_placeholder_in_subject() -> None:
-    with pytest.raises(ValidationError, match="Unknown placeholder"):
-        BusinessSettingsUpdate(default_email_subject="Invoice {secret_field}")
-
-
-def test_update_rejects_unknown_placeholder_in_message() -> None:
-    with pytest.raises(ValidationError, match="Unknown placeholder"):
-        BusinessSettingsUpdate(default_email_message="Hello {client_name}, your {account_balance}.")
-
-
 @pytest.mark.parametrize(
     "template",
-    ["Invoice {invoice-number}", "Invoice { invoice_number }", "Invoice {invoice_number"],
+    [
+        "Invoice {secret_field}",
+        "Invoice {invoice-number}",
+        "Invoice { invoice_number }",
+        "Invoice {invoice_number",
+        "Totals in {curly braces} are fine",
+    ],
 )
-def test_update_rejects_malformed_placeholder_syntax(template: str) -> None:
-    with pytest.raises(ValidationError, match="Malformed placeholder"):
-        BusinessSettingsUpdate(default_email_subject=template)
+def test_update_keeps_unknown_or_unbalanced_braces_literally(template: str) -> None:
+    """Braces that aren't a known placeholder are allowed; the UI flags likely typos."""
+    update = BusinessSettingsUpdate(default_email_subject=template)
+    assert update.default_email_subject == template
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +215,8 @@ async def test_put_settings_persists_custom_templates(seeded_api) -> None:
     assert refetched.json()["default_email_message"] == "Hi {client_name}, total due: {total} {currency}."
 
 
-async def test_put_settings_rejects_unknown_placeholder(seeded_api) -> None:
+async def test_put_settings_keeps_unknown_placeholder_literally(seeded_api) -> None:
+    """Unrecognized braces are saved as typed; the Settings page warns instead of the API refusing."""
     request, owner, _ = seeded_api
 
     response = await request(
@@ -227,8 +225,8 @@ async def test_put_settings_rejects_unknown_placeholder(seeded_api) -> None:
         "/api/settings",
         json={"default_email_subject": "Invoice {secret_field}"},
     )
-    assert response.status_code == 422, response.text
-    assert "unknown placeholder" in response.text.lower()
+    assert response.status_code == 200, response.text
+    assert response.json()["default_email_subject"] == "Invoice {secret_field}"
 
 
 async def test_put_settings_rejects_overlong_message(seeded_api) -> None:

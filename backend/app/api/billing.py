@@ -79,7 +79,7 @@ def _free_features() -> list[str]:
 _PRO_FEATURES = [
     "Unlimited invoice email delivery",
     "AI-assisted drafting and edits",
-    "Voice input",
+    "AI Voice input",
     "Automatic smart suggestions from your invoices",
 ]
 
@@ -311,6 +311,7 @@ async def get_plans() -> BillingPlansResponse:
         configured=settings.stripe_configured,
         enforcement_enabled=settings.billing_enforcement_enabled,
         plans=plans,
+        free_monthly_email_limit=settings.free_monthly_email_limit,
     )
 
 
@@ -595,13 +596,15 @@ async def create_checkout_session(
             idempotency_key=f"checkout:{interval}:{checkout_key}",
             expires_at=expires_at,
             metadata={"user_id": current_user.id, "interval": interval},
-            # Auto-apply launch promo on monthly when configured; otherwise show code field.
+            # The launch discount is applied automatically to monthly Pro only. There are no
+            # public codes, so Checkout shows no code box (which also keeps the launch code
+            # from being typed into a yearly purchase).
             promotion_code=(
                 settings.stripe_launch_promotion_code.strip() or None
                 if interval == "month"
                 else None
             ),
-            allow_promotion_codes=True,
+            allow_promotion_codes=False,
         )
     except Exception as exc:
         logger.exception("stripe_checkout_session_failed", extra={"exception_type": type(exc).__name__})

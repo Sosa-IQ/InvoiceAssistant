@@ -1,33 +1,26 @@
 """API docs must not be served in production."""
 
-import importlib
-import sys
-
 import httpx
+from fastapi import FastAPI
+
+from app.main import api_docs_urls
 
 
-async def _status(path: str) -> int:
-    from app.main import app
-
+async def _status(app: FastAPI, path: str) -> int:
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
         return (await client.get(path)).status_code
 
 
-async def test_docs_hidden_in_production(monkeypatch) -> None:
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "app_environment", "production")
-    monkeypatch.delitem(sys.modules, "app.main", raising=False)
-    try:
-        importlib.import_module("app.main")
-        for path in ("/docs", "/redoc", "/openapi.json"):
-            assert await _status(path) == 404, path
-    finally:
-        # Reload with the original environment so other tests get the normal app.
-        monkeypatch.undo()
-        sys.modules.pop("app.main", None)
-        importlib.import_module("app.main")
+async def test_docs_hidden_in_production() -> None:
+    # A fresh app built with production's settings; the shared app is never reloaded,
+    # so other tests keep patching the module they imported.
+    app = FastAPI(**api_docs_urls("production"))
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert await _status(app, path) == 404, path
+    assert api_docs_urls(" Prod ") == {"docs_url": None, "redoc_url": None, "openapi_url": None}
 
 
 async def test_docs_available_in_development() -> None:
-    assert await _status("/openapi.json") == 200
+    from app.main import app
+
+    assert await _status(app, "/openapi.json") == 200

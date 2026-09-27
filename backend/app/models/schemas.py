@@ -22,14 +22,11 @@ def _validate_optional_email(value: Optional[str]) -> Optional[str]:
 # Email templates
 # ---------------------------------------------------------------------------
 #
-# Templates are rendered by substituting only these named placeholders — never
-# via `eval` or `str.format_map` against uncontrolled input. Anything else in
-# curly braces is rejected at write time so the allowlist stays authoritative.
-
-EMAIL_TEMPLATE_PLACEHOLDERS = frozenset(
-    {"invoice_number", "client_name", "business_name", "issue_date", "total", "currency"}
-)
-_PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z0-9_]+)\}")
+# Templates are rendered in the browser by substituting only the allowlisted
+# placeholders ({invoice_number}, {client_name}, {business_name}, {issue_date},
+# {total}, {currency}) — never via `eval` or a general `format_map`. Other text in
+# braces is kept literally: customers may want braces in their emails, so the
+# Settings page warns about likely typos instead of the API refusing them.
 
 DEFAULT_EMAIL_SUBJECT_TEMPLATE = "Invoice {invoice_number}"
 DEFAULT_EMAIL_MESSAGE_TEMPLATE = (
@@ -45,13 +42,6 @@ def _validate_email_template(value: str, *, field_name: str, single_line: bool) 
         raise ValueError(f"{field_name} cannot be blank.")
     if single_line and ("\r" in normalized or "\n" in normalized):
         raise ValueError(f"{field_name} must be a single line.")
-    for match in _PLACEHOLDER_RE.finditer(normalized):
-        placeholder = match.group(1)
-        if placeholder not in EMAIL_TEMPLATE_PLACEHOLDERS:
-            raise ValueError(f"Unknown placeholder {{{placeholder}}} in {field_name}.")
-    without_valid_placeholders = _PLACEHOLDER_RE.sub("", normalized)
-    if "{" in without_valid_placeholders or "}" in without_valid_placeholders:
-        raise ValueError(f"Malformed placeholder syntax in {field_name}.")
     return normalized
 
 
@@ -70,7 +60,6 @@ class BusinessSettingsRead(BaseModel):
     tax_id: Optional[str] = None
     default_currency: str = "USD"
     default_tax_pct: float = 0.0
-    payment_terms: str = "Net 30"
     bank_name: Optional[str] = None
     account_name: Optional[str] = None
     account_number: Optional[str] = None
@@ -98,7 +87,6 @@ class BusinessSettingsUpdate(BaseModel):
     tax_id: Optional[str] = None
     default_currency: Optional[str] = None
     default_tax_pct: Optional[float] = None
-    payment_terms: Optional[str] = None
     bank_name: Optional[str] = None
     account_name: Optional[str] = None
     account_number: Optional[str] = None
@@ -463,6 +451,8 @@ class BillingPlansResponse(BaseModel):
     configured: bool
     enforcement_enabled: bool
     plans: list[BillingPlanRead]
+    # Single source for the Free email allowance shown in marketing and pricing copy.
+    free_monthly_email_limit: int
 
 
 class BillingStatusRead(BaseModel):

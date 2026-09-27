@@ -32,6 +32,8 @@ import {
 } from "@/api/catalog"
 import { ProUpgradeDialog } from "@/components/ProUpgradeDialog"
 import { useProAccess } from "@/hooks/useProAccess"
+import { SearchInput } from "@/components/SearchInput"
+import { matchesSearch } from "@/lib/search"
 import type { CatalogItem, CatalogRecommendation } from "@/types/invoice"
 
 type ItemFormData = Omit<CatalogItem, "id" | "user_id" | "created_at" | "updated_at">
@@ -45,12 +47,14 @@ export default function CatalogPage() {
   const [savedRecommendations, setSavedRecommendations] = useState<string[]>([])
   const [savingRecommendationKeys, setSavingRecommendationKeys] = useState<string[]>([])
   const [proUpgradeOpen, setProUpgradeOpen] = useState(false)
+  const [search, setSearch] = useState("")
   const { isPro } = useProAccess()
 
   const { data: items = [] } = useQuery<CatalogItem[]>({
     queryKey: ["catalog"],
     queryFn: () => listCatalog(),
   })
+  const visibleItems = items.filter((item) => matchesSearch(search, [item.description, item.unit, item.notes]))
 
   const { register, handleSubmit, reset } = useForm<ItemFormData>()
 
@@ -157,15 +161,21 @@ export default function CatalogPage() {
         </div>
       </div>
 
+      {items.length > 0 && (
+        <SearchInput value={search} onChange={setSearch} label="Search catalog" placeholder="Search by description, unit, or notes" />
+      )}
+
       {items.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground text-sm">
           <Package className="h-8 w-8 mx-auto mb-2 opacity-40" />
           No catalog items yet.
         </div>
+      ) : visibleItems.length === 0 ? (
+        <div className="py-12 text-center text-sm text-muted-foreground">No catalog items match &ldquo;{search}&rdquo;.</div>
       ) : (
         <div className="rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
         <div className="space-y-3 md:hidden">
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <article key={item.id} className="rounded-2xl border bg-background/40 p-4">
               <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-black">{item.description}</p><p className="mt-1 text-sm text-muted-foreground">Per {item.unit}</p></div><p className="shrink-0 text-lg font-black">{fmt(item.unit_price)}</p></div>
               {item.notes && <p className="mt-3 text-sm leading-6 text-muted-foreground">{item.notes}</p>}
@@ -185,7 +195,7 @@ export default function CatalogPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.map((item) => (
+            {visibleItems.map((item) => (
               <TableRow key={item.id}>
                 <TableCell className="font-medium">{item.description}</TableCell>
                 <TableCell>{item.unit}</TableCell>

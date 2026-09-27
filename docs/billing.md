@@ -52,7 +52,7 @@ Once configured, `/plans` reads amount/currency/interval from live Stripe Prices
 
 **Coupons / launch promo:** Stripe coupons attach at the product or account level more often than per-price. If a coupon applies to both monthly and yearly and you only want monthly promo pricing, either accept that for launch, use a promotion code with duration limits, or (only if needed) split products later. One product + two prices is the preferred model.
 
-To **auto-apply** the launch promo on monthly Checkout, set `STRIPE_LAUNCH_PROMOTION_CODE` to the Stripe Promotion Code id (`promo_…`, not the customer-facing code string). When set, Checkout applies that discount and hides the manual code field (Stripe does not allow both). When empty, Checkout still shows “Add promotion code” via `allow_promotion_codes`. The marketing UI always shows the $9/mo for 3 months launch offer; keep the Stripe coupon in sync.
+To **auto-apply** the launch promo on monthly Checkout, set `STRIPE_LAUNCH_PROMOTION_CODE` to the Stripe Promotion Code id (`promo_…`, not the customer-facing code string): Dashboard → Product catalog → Coupons → your coupon (e.g. $3 off, repeating 3 months) → Promotion codes → create one, then copy its id. Yearly Checkout never receives it, so one product with both prices is fine. Checkout never shows a manual "Add promotion code" box (there are no public codes), so the launch code cannot be applied to a yearly purchase. The marketing UI always shows the $9/mo for 3 months launch offer; keep the Stripe coupon in sync.
 
 ## 3. Configure the backend
 

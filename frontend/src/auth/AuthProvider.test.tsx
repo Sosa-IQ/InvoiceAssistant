@@ -9,6 +9,7 @@ import { useAuth } from "./AuthContext"
 
 vi.mock("@/lib/supabase", () => ({
   isSupabaseConfigured: true,
+  initialAuthRedirect: { recovery: false, error: null },
   supabase: {
     auth: {
       getSession: vi.fn(),

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { isAxiosError } from "axios"
+import { Link } from "react-router-dom"
 import { CheckCircle2, Eye, FileText, Loader2, Send } from "lucide-react"
 import { toast } from "sonner"
 import { useAuth } from "@/auth/AuthContext"
@@ -17,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { downloadInvoicePdf, listInvoiceEmails, openInvoicePdf, sendInvoice } from "@/api/invoices"
 import { getSettings } from "@/api/settings"
+import { freeEmailSummary, useEmailAllowance } from "@/hooks/useEmailAllowance"
 import type { BusinessSettings, InvoiceData, InvoiceEmail, InvoiceRecord, SendInvoiceRequest } from "@/types/invoice"
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
@@ -118,6 +121,10 @@ export function EmailInvoiceDialog({
   const [view, setView] = useState<DialogView>("compose")
   const [sendAttemptKey, setSendAttemptKey] = useState(newSendAttemptKey)
   const [sendError, setSendError] = useState<string | null>(null)
+  // Set when the Free monthly email allowance is used up: retrying cannot help, upgrading can.
+  const [limitReached, setLimitReached] = useState<string | null>(null)
+  const emailAllowance = useEmailAllowance()
+  const allowanceSummary = freeEmailSummary(emailAllowance.limit, emailAllowance.remaining)
   const [sending, setSending] = useState(false)
   const [previewing, setPreviewing] = useState(false)
   const [downloading, setDownloading] = useState(false)
@@ -278,6 +285,7 @@ export function EmailInvoiceDialog({
     }
     setSending(true)
     setSendError(null)
+    setLimitReached(null)
     const payload = buildPayload()
     setSentRecipient(payload.recipient_email ?? "")
     try {
@@ -291,7 +299,14 @@ export function EmailInvoiceDialog({
       setView("sent")
     } catch (error) {
       setView("compose")
-      setSendError(error instanceof Error ? error.message : "Email send failed. Please try again.")
+      if (isAxiosError(error) && error.response?.status === 402) {
+        const detail = error.response.data?.detail
+        setLimitReached(typeof detail === "string" ? detail : "You've used this month's free invoice emails.")
+        void queryClient.invalidateQueries({ queryKey: ["billing", "usage"] })
+        return
+      }
+      const detail = isAxiosError(error) ? error.response?.data?.detail : null
+      setSendError(typeof detail === "string" ? detail : "Email send failed. Please try again.")
     } finally {
       setSending(false)
     }
@@ -378,6 +393,17 @@ export function EmailInvoiceDialog({
               className="resize-y"
             />
           </div>
+
+          {limitReached ? (
+            <div role="alert" className="rounded-md border border-primary/40 bg-primary/10 p-3 text-sm">
+              <p className="font-medium text-foreground">{limitReached}</p>
+              <Button asChild size="sm" className="mt-2">
+                <Link to="/pricing">Upgrade to Pro</Link>
+              </Button>
+            </div>
+          ) : (
+            allowanceSummary && <p className="text-sm text-muted-foreground">{allowanceSummary}</p>
+          )}
 
           {sendError && (
             <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">

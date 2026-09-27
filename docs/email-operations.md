@@ -11,7 +11,7 @@ Each tenant can edit its default subject and message under **Settings → Email 
 - `{total}`
 - `{currency}`
 
-Templates must be nonblank; subjects are limited to 200 characters and one line, and messages to 5,000 characters. Unknown or malformed placeholders are rejected. The rendered subject and message remain editable for an individual send without changing the saved tenant defaults.
+Templates must be nonblank; subjects are limited to 200 characters and one line, and messages to 5,000 characters. Anything else in braces is kept as literal text; Settings warns about unrecognized placeholders (likely typos) without blocking the save. The rendered subject and message remain editable for an individual send without changing the saved tenant defaults.
 
 ## Reliability model
 

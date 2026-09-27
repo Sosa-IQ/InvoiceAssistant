@@ -110,4 +110,31 @@ describe("AuthPage", () => {
       options: { captchaToken: "captcha-token" },
     })
   })
+
+  it("says so when the email already has an account", async () => {
+    vi.mocked(supabase.auth.signUp).mockResolvedValue({
+      data: { user: { id: "u1", identities: [] }, session: null },
+      error: null,
+    } as unknown as Awaited<ReturnType<typeof supabase.auth.signUp>>)
+    renderAuth({ mode: "signup" })
+
+    await userEvent.type(screen.getByLabelText("Email"), "taken@example.com")
+    await userEvent.type(screen.getByLabelText("Password"), "a-strong-password")
+    await userEvent.click(screen.getByRole("button", { name: "Create Account" }))
+
+    expect(await screen.findByText("An account with this email already exists.")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Reset your password" })).toBeInTheDocument()
+    expect(screen.queryByText(/We sent a confirmation link/)).not.toBeInTheDocument()
+  })
+
+  it("explains a too-short password instead of doing nothing", async () => {
+    renderAuth({ mode: "signup" })
+
+    await userEvent.type(screen.getByLabelText("Email"), "new@example.com")
+    await userEvent.type(screen.getByLabelText("Password"), "short")
+    await userEvent.click(screen.getByRole("button", { name: "Create Account" }))
+
+    expect(await screen.findByText("Use at least 8 characters.")).toBeInTheDocument()
+    expect(supabase.auth.signUp).not.toHaveBeenCalled()
+  })
 })

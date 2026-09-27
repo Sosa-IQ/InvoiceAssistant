@@ -11,6 +11,10 @@ vi.mock("@/auth/AuthContext", async () => {
   }
 })
 
+vi.mock("@/api/billing", () => ({
+  getBillingPlans: vi.fn().mockResolvedValue({ configured: true, enforcement_enabled: true, plans: [], free_monthly_email_limit: 3 }),
+}))
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
@@ -21,5 +25,10 @@ describe("LandingPage", () => {
     expect(screen.getByRole("heading", { name: /Invoices without the fuss/i })).toBeInTheDocument()
     expect(screen.getAllByRole("link", { name: /Start free|Create free account/i }).length).toBeGreaterThan(0)
     expect(screen.getByRole("link", { name: /See pricing/i })).toBeInTheDocument()
+  })
+
+  it("states the Free email allowance from the server setting", async () => {
+    renderWithProviders(<LandingPage />, { auth: { user: null }, initialEntries: ["/"] })
+    expect(await screen.findByText(/Free includes 3 invoice emails a month/)).toBeInTheDocument()
   })
 })

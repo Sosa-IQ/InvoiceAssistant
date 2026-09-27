@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate, useBlocker, type BlockerFunction } from "react-router-dom"
-import { useForm, useFieldArray, useWatch } from "react-hook-form"
+import { useForm, useFieldArray, useWatch, type FieldErrors } from "react-hook-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, Trash2, Loader2, GripVertical, Save, Mic } from "lucide-react"
+import { Plus, Trash2, Loader2, GripVertical, Save } from "lucide-react"
 import { toast } from "sonner"
 import {
   DndContext,
@@ -21,7 +21,7 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { getNextInvoiceNumber, reviseInvoice, saveInvoice } from "@/api/invoices"
-import { transcribeAudio } from "@/api/voice"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
 import { createClient, createClientAddress, listClients } from "@/api/clients"
 import { EmailInvoiceDialog } from "@/components/EmailInvoiceDialog"
 import { ProLockedPanel } from "@/components/ProLockedPanel"
@@ -44,6 +44,32 @@ import {
 import type { Client, InvoiceData, InvoiceRecord } from "@/types/invoice"
 
 const DRAFT_KEY = "invoice_draft"
+
+/**
+ * A draft remembers which invoice it started from. The browser keeps navigation state across a
+ * refresh, so without this the original invoice would win over the edits after a reload.
+ */
+type StoredDraft = { source: string | null; invoice: InvoiceData }
+
+function fingerprint(invoice: InvoiceData | null): string | null {
+  if (!invoice) return null
+  const text = JSON.stringify(invoice)
+  let hash = 5381
+  for (let i = 0; i < text.length; i++) hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0
+  return String(hash)
+}
+
+function readDraft(): StoredDraft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as StoredDraft | InvoiceData
+    // Drafts saved before sources were tracked are the bare invoice.
+    return "invoice" in parsed && "source" in parsed ? parsed : { source: null, invoice: parsed as InvoiceData }
+  } catch {
+    return null
+  }
+}
 const CLIENT_ADDRESS_LABEL = "Invoice Address"
 
 function defaultLineItem() {
@@ -120,25 +146,22 @@ export default function InvoiceEditorPage() {
   const emailSummary = freeEmailSummary(emailAllowance.limit, emailAllowance.remaining)
   const [aiInstruction, setAiInstruction] = useState("")
   const [aiRevising, setAiRevising] = useState(false)
-  const [aiRecording, setAiRecording] = useState(false)
-  const [aiTranscribing, setAiTranscribing] = useState(false)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
+  // True while the voice recorder is recording or transcribing.
+  const [aiVoiceBusy, setAiVoiceBusy] = useState(false)
   const suppressDraftRef = useRef(false)
 
   const routeInvoice = (location.state as { invoice?: InvoiceData } | null)?.invoice ?? null
-  const initialInvoice: InvoiceData | null =
-    routeInvoice ??
-    (() => {
-      try {
-        const raw = localStorage.getItem(DRAFT_KEY)
-        return raw ? (JSON.parse(raw) as InvoiceData) : null
-      } catch {
-        return null
-      }
-    })()
+  const [draftSource] = useState(() => fingerprint(routeInvoice))
+  const [restoredDraft] = useState<InvoiceData | null>(() => {
+    const draft = readDraft()
+    if (!draft) return null
+    // With an invoice handed over by navigation, only its own draft (e.g. after a refresh) applies.
+    if (routeInvoice && draft.source !== draftSource) return null
+    return draft.invoice
+  })
+  const initialInvoice: InvoiceData | null = restoredDraft ?? routeInvoice
 
-  const { register, control, handleSubmit, setValue, reset, getValues, formState: { isDirty } } =
+  const { register, control, handleSubmit, setValue, reset, getValues, formState: { isDirty, errors } } =
     useForm<InvoiceData>({
       defaultValues: initialInvoice ?? {
         invoice_number: "",
@@ -187,19 +210,16 @@ export default function InvoiceEditorPage() {
       localStorage.removeItem(DRAFT_KEY)
       return
     }
-    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(watchedRef.current)) } catch { /* ignore */ }
-  }, [watchedValues])
+    const draft: StoredDraft = { source: draftSource, invoice: watchedRef.current as InvoiceData }
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)) } catch { /* ignore */ }
+  }, [draftSource, watchedValues])
 
   // Warn on navigate away when dirty
+  // A draft restored after a refresh is unsaved work even before the next edit.
+  const hasUnsavedWork = isDirty || (restoredDraft !== null && !savedRecord)
   const shouldBlock: BlockerFunction = ({ currentLocation, nextLocation }) =>
-    isDirty && currentLocation.pathname !== nextLocation.pathname
+    hasUnsavedWork && currentLocation.pathname !== nextLocation.pathname
   const blocker = useBlocker(shouldBlock)
-  useEffect(() => {
-    if (blocker.state === "blocked") {
-      if (confirm("You have unsaved changes. Leave anyway?")) blocker.proceed()
-      else blocker.reset()
-    }
-  }, [blocker])
 
   function clearDraft() { localStorage.removeItem(DRAFT_KEY) }
 
@@ -337,51 +357,9 @@ export default function InvoiceEditorPage() {
     }
   }
 
-  async function startAiRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream)
-      const actualMimeType = recorder.mimeType || "audio/webm"
-      chunksRef.current = []
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data)
-      }
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop())
-        const blob = new Blob(chunksRef.current, { type: actualMimeType })
-        setAiTranscribing(true)
-        try {
-          const transcript = await transcribeAudio(blob)
-          if (transcript) {
-            setAiInstruction((prev) => (prev ? `${prev}\n${transcript}` : transcript))
-            toast.success("Voice transcribed.")
-          }
-        } catch {
-          toast.error("Transcription failed")
-        } finally {
-          setAiTranscribing(false)
-        }
-      }
-      recorder.start()
-      mediaRecorderRef.current = recorder
-      setAiRecording(true)
-    } catch {
-      toast.error("Microphone access denied.")
-    }
+  function onInvalid(formErrors: FieldErrors<InvoiceData>) {
+    if (formErrors.line_items) toast.error("Add a description to every line item before saving.")
   }
-
-  function stopAiRecording() {
-    mediaRecorderRef.current?.stop()
-    mediaRecorderRef.current = null
-    setAiRecording(false)
-  }
-
-  useEffect(() => {
-    return () => {
-      mediaRecorderRef.current?.stop()
-      mediaRecorderRef.current = null
-    }
-  }, [])
 
   async function onSave(data: InvoiceData) {
     setIsSaving(true)
@@ -442,7 +420,7 @@ export default function InvoiceEditorPage() {
           <Button variant="outline" size="sm" className="h-11" onClick={() => { clearDraft(); navigate("/invoices") }}>
             Discard
           </Button>
-          <Button size="sm" className="h-11" onClick={handleSubmit(onSave)} disabled={isSaving}>
+          <Button size="sm" className="h-11" onClick={handleSubmit(onSave, onInvalid)} disabled={isSaving}>
             {isSaving
               ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
               : <Save className="mr-1.5 h-4 w-4" />}
@@ -451,7 +429,7 @@ export default function InvoiceEditorPage() {
         </div>
       </div>
 
-      <form className="space-y-6" onSubmit={handleSubmit(onSave)}>
+      <form className="space-y-6" onSubmit={handleSubmit(onSave, onInvalid)}>
 
         {isPro ? (
         <section className="rounded-[24px] border border-border bg-card p-4 shadow-sm sm:p-5">
@@ -461,31 +439,12 @@ export default function InvoiceEditorPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             Keep this draft and describe changes by typing or voice. Uses your AI and voice allowances.
           </p>
-          <div className="mt-3 flex flex-col items-center gap-2 sm:flex-row sm:items-start">
-            <button
-              type="button"
-              onClick={aiRecording ? stopAiRecording : startAiRecording}
-              disabled={aiRevising || aiTranscribing}
-              title={aiRecording ? "Click to stop" : "Click to record"}
-              className={[
-                "relative flex h-16 w-16 shrink-0 items-center justify-center rounded-full transition-all",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                aiRecording
-                  ? "bg-red-500 text-white shadow-lg hover:bg-red-600 focus-visible:ring-red-500"
-                  : aiTranscribing
-                    ? "cursor-not-allowed bg-muted opacity-60"
-                    : "cursor-pointer bg-primary text-primary-foreground shadow-md hover:opacity-90 focus-visible:ring-primary",
-              ].join(" ")}
-            >
-              {aiTranscribing ? (
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              ) : (
-                <Mic className="h-6 w-6" />
-              )}
-            </button>
-            <p className="text-xs text-muted-foreground sm:pt-5">
-              {aiTranscribing ? "Transcribing…" : aiRecording ? "Recording — click to stop" : "Click to record"}
-            </p>
+          <div className="mt-4">
+            <VoiceRecorder
+              disabled={aiRevising}
+              onBusyChange={setAiVoiceBusy}
+              onTranscript={(transcript) => setAiInstruction((prev) => (prev ? `${prev}\n${transcript}` : transcript))}
+            />
           </div>
           <Textarea
             id="ai-revise"
@@ -499,7 +458,7 @@ export default function InvoiceEditorPage() {
             <Button
               type="button"
               className="min-h-11 rounded-xl"
-              disabled={aiRevising || aiRecording || aiTranscribing || !aiInstruction.trim()}
+              disabled={aiRevising || aiVoiceBusy || !aiInstruction.trim()}
               onClick={() => void onAiRevise()}
             >
               {aiRevising ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
@@ -557,7 +516,7 @@ export default function InvoiceEditorPage() {
                   onClick={toggleClientPicker}
                   disabled={clientsLoading || clients.length === 0}
                 >
-                  Saved Client
+                  Select Client
                 </Button>
 
                 {showClientPicker && (
@@ -684,7 +643,17 @@ export default function InvoiceEditorPage() {
                       return (
                         <SortableRow key={field.id} id={field.id}>
                           <td data-label="Description" className="py-1.5 pr-2">
-                            <Input {...register(`line_items.${i}.description`)} placeholder="Description" className="h-12" />
+                            <Input
+                              {...register(`line_items.${i}.description`, {
+                                validate: (value) => Boolean(value?.trim()) || "Add a description",
+                              })}
+                              placeholder="Description"
+                              aria-invalid={Boolean(errors.line_items?.[i]?.description)}
+                              className="h-12 aria-[invalid=true]:border-destructive"
+                            />
+                            {errors.line_items?.[i]?.description && (
+                              <p className="mt-1 text-xs text-destructive">{errors.line_items[i]?.description?.message}</p>
+                            )}
                           </td>
                           <td data-label="Quantity" className="py-1.5 pr-2">
                             <Input
@@ -750,6 +719,38 @@ export default function InvoiceEditorPage() {
         </section>
 
       </form>
+
+      <Dialog
+        open={blocker.state === "blocked"}
+        onOpenChange={(open) => {
+          if (!open) blocker.reset?.()
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Leave without saving?</DialogTitle>
+            <DialogDescription>
+              Your changes to this invoice haven't been saved. If you leave now, they'll be discarded.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => blocker.reset?.()}>
+              Keep editing
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                suppressDraftRef.current = true
+                clearDraft()
+                blocker.proceed?.()
+              }}
+            >
+              Discard and leave
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showEmailPrompt} onOpenChange={(open) => { if (!open) skipEmail() }}>
         <DialogContent>

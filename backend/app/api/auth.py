@@ -11,6 +11,7 @@ from app.config import settings
 from app.database import get_db
 from app.models.db_models import InvoiceRecord, Profile, Subscription
 from app.models.schemas import AccountDeleteRequest, AuthMeResponse, ProfileRead
+from app.services.profiles import ensure_profile
 from app.services.stripe_service import stripe_service
 from app.services.storage import StorageService
 from app.services.supabase_service import SupabaseService
@@ -30,14 +31,7 @@ async def get_me(
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> AuthMeResponse:
-    result = await db.execute(select(Profile).where(Profile.id == current_user.id))
-    profile = result.scalar_one_or_none()
-    if profile is None:
-        profile = Profile(id=current_user.id, email=current_user.email or "")
-        db.add(profile)
-        await db.commit()
-        await db.refresh(profile)
-        logger.info("profile_created")
+    profile = await ensure_profile(db, current_user.id, current_user.email)
     return AuthMeResponse(user=ProfileRead.model_validate(profile))
 
 

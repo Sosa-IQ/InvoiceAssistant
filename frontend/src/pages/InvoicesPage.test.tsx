@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, vi } from "vitest"
 
@@ -7,6 +7,7 @@ import type { InvoiceRecord } from "@/types/invoice"
 
 vi.mock("@/api/invoices", () => ({
   deleteInvoice: vi.fn(),
+  downloadInvoicePdf: vi.fn(),
   listInvoices: vi.fn(),
   openInvoicePdf: vi.fn(),
   updateInvoiceStatus: vi.fn(),
@@ -26,7 +27,7 @@ vi.mock("@/components/EmailInvoiceDialog", () => ({
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
-import { listInvoices } from "@/api/invoices"
+import { downloadInvoicePdf, listInvoices } from "@/api/invoices"
 import { getBillingStatus, getUsageStatus } from "@/api/billing"
 import InvoicesPage from "./InvoicesPage"
 
@@ -147,4 +148,38 @@ describe("InvoicesPage history actions", () => {
 
     expect(screen.getByRole("dialog")).toHaveTextContent("used this month's free invoice emails")
   })
+
+  it("downloads a PDF directly from the history", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listInvoices).mockResolvedValue([exportedInvoiceWithoutRecipient()])
+    vi.mocked(downloadInvoicePdf).mockResolvedValue(new Blob(["pdf"]))
+    Object.assign(URL, { createObjectURL: vi.fn(() => "blob:x"), revokeObjectURL: vi.fn() })
+    renderWithProviders(<InvoicesPage />)
+
+    await user.click(await screen.findByRole("button", { name: "Download PDF" }))
+    expect(downloadInvoicePdf).toHaveBeenCalledWith(42)
+  })
+
+  it("sorts by a column header and filters by client", async () => {
+    const user = userEvent.setup()
+    const base = exportedInvoiceWithoutRecipient()
+    vi.mocked(listInvoices).mockResolvedValue([
+      { ...base, id: 1, invoice_number: "INV-A", client_name: "Acme Corp", grand_total: 10 },
+      { ...base, id: 2, invoice_number: "INV-B", client_name: "Beta LLC", grand_total: 900 },
+    ])
+    renderWithProviders(<InvoicesPage />)
+
+    const table = await screen.findByRole("table")
+    await user.click(within(table).getByRole("button", { name: /total/i }))
+    let numbers = within(table).getAllByRole("cell").map((c) => c.textContent).filter((t) => t?.startsWith("INV-"))
+    expect(numbers).toEqual(["INV-B", "INV-A"])
+    await user.click(within(table).getByRole("button", { name: /total/i }))
+    numbers = within(table).getAllByRole("cell").map((c) => c.textContent).filter((t) => t?.startsWith("INV-"))
+    expect(numbers).toEqual(["INV-A", "INV-B"])
+
+    await user.selectOptions(screen.getByLabelText("Client"), "Beta LLC")
+    expect(screen.getByText(/History \(1 of 2\)/)).toBeInTheDocument()
+    expect(within(table).queryByText("INV-A")).not.toBeInTheDocument()
+  })
 })
+

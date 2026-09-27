@@ -101,6 +101,8 @@ export async function listInvoiceEmails(recordId: number): Promise<InvoiceEmail[
 }
 
 export async function sendInvoice(recordId: number, payload: SendInvoiceRequest): Promise<SendInvoiceResponse> {
-  const { data } = await api.post<SendInvoiceResponse>(`/api/invoices/${recordId}/send`, payload)
+  const { data } = await api.post<SendInvoiceResponse>(`/api/invoices/${recordId}/send`, payload, {
+    handlesUpgradeRequired: true,
+  })
   return data
 }

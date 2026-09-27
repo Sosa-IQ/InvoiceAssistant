@@ -6,10 +6,10 @@ export const APP_BLURB =
 export const APP_SUPPORT_EMAIL = "support@cuenvia.com"
 export const APP_INITIALS = "C"
 
-/** Launch promo marketing (Stripe coupon / promotion code must match in Dashboard). */
+/** Launch promo marketing (the Stripe coupon is applied automatically at monthly Checkout). */
 export const LAUNCH_PROMO_SHORT = "Launch promo: $9/mo for your first 3 months"
 export const LAUNCH_PROMO_BLURB =
-  "Then $12/month. Yearly is $120/year (best value — 2 months free). Promo applies on monthly Pro at Checkout when available."
+  "Then $12/month. Or pay yearly: $120/year, 2 months free."
 export const PRO_MONTHLY_CENTS = 1200
 export const PRO_YEARLY_CENTS = 12000
 export const PRO_LAUNCH_MONTHLY_CENTS = 900

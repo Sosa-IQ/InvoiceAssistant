@@ -19,6 +19,8 @@ export function useEmailAllowance() {
     limit,
     used,
     remaining,
+    /** When the monthly count resets (ISO timestamp). */
+    periodEnd: usage?.period_end ?? null,
   }
 }
 

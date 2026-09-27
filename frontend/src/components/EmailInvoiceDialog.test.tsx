@@ -16,12 +16,18 @@ vi.mock("@/api/settings", () => ({
   updateSettings: vi.fn(),
 }))
 
+vi.mock("@/api/billing", () => ({
+  getUsageStatus: vi.fn(),
+}))
+
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
 
 import { listInvoiceEmails, sendInvoice, openInvoicePdf, downloadInvoicePdf } from "@/api/invoices"
 import { getSettings } from "@/api/settings"
+import { getUsageStatus } from "@/api/billing"
+import { AxiosError, AxiosHeaders } from "axios"
 import { EmailInvoiceDialog } from "./EmailInvoiceDialog"
 import type { BusinessSettings } from "@/types/invoice"
 
@@ -90,7 +96,6 @@ function makeSettings(overrides: Partial<BusinessSettings> = {}): BusinessSettin
     tax_id: null,
     default_currency: "USD",
     default_tax_pct: 0,
-    payment_terms: "Net 30",
     bank_name: null,
     account_name: null,
     account_number: null,
@@ -111,6 +116,10 @@ beforeEach(() => {
   vi.mocked(openInvoicePdf).mockResolvedValue(undefined)
   vi.mocked(getSettings).mockResolvedValue(makeSettings())
   vi.mocked(downloadInvoicePdf).mockResolvedValue(new Blob())
+  vi.mocked(getUsageStatus).mockResolvedValue({
+    email_monthly_limit: null,
+    emails_sent_this_period: 0,
+  } as Awaited<ReturnType<typeof getUsageStatus>>)
 })
 
 afterEach(() => {
@@ -329,6 +338,32 @@ describe("EmailInvoiceDialog — editable delivery and result states (R2/R3/R5)"
     expect(await screen.findByRole("alert")).toHaveTextContent("Email send failed. Please try again.")
     expect(subject).toHaveValue("Keep this subject")
     expect(screen.getByRole("button", { name: /retry send/i })).toBeInTheDocument()
+  })
+
+  it("shows the Free limit message with an upgrade link instead of Retry", async () => {
+    vi.mocked(getUsageStatus).mockResolvedValue({
+      email_monthly_limit: 5,
+      emails_sent_this_period: 4,
+    } as Awaited<ReturnType<typeof getUsageStatus>>)
+    const limitError = new AxiosError("Request failed", "ERR_BAD_REQUEST", undefined, undefined, {
+      status: 402,
+      statusText: "Payment Required",
+      headers: {},
+      config: { headers: new AxiosHeaders() },
+      data: { detail: "Free includes 5 invoice emails per month, and you've used them all." },
+    })
+    vi.mocked(sendInvoice).mockRejectedValueOnce(limitError)
+    const user = userEvent.setup()
+    renderWithProviders(<EmailInvoiceDialog record={makeRecord()} onOpenChange={() => {}} />)
+
+    expect(await screen.findByText("1 of 5 free invoice emails left this month.")).toBeInTheDocument()
+    const subject = await screen.findByLabelText("Subject")
+    await waitFor(() => expect(subject).not.toHaveValue(""))
+    await user.click(screen.getByRole("button", { name: /send invoice/i }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("you've used them all")
+    expect(screen.getByRole("link", { name: "Upgrade to Pro" })).toHaveAttribute("href", "/pricing")
+    expect(screen.queryByRole("button", { name: /retry send/i })).not.toBeInTheDocument()
   })
 
   it("reuses one idempotency key for a failed attempt and its retry", async () => {

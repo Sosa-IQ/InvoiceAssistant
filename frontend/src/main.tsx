@@ -10,6 +10,7 @@ import RequireAuth from "@/auth/RequireAuth"
 import AppLayout from "@/components/AppLayout"
 import AppErrorBoundary from "@/components/AppErrorBoundary"
 import PageLoading from "@/components/PageLoading"
+import RootLayout from "@/components/RootLayout"
 import ComingSoonPage from "@/pages/ComingSoonPage"
 import { initSentry } from "@/lib/sentry"
 
@@ -39,31 +40,36 @@ function deferred(node: ReactNode) {
 }
 
 const router = createBrowserRouter([
-  { path: "/", element: deferred(<LandingPage />) },
-  { path: "/auth", element: deferred(<AuthPage />) },
-  { path: "/reset-password", element: deferred(<ResetPasswordPage />) },
-  { path: "/pricing", element: deferred(<PricingPage />) },
-  { path: "/terms", element: deferred(<TermsPage />) },
-  { path: "/privacy", element: deferred(<PrivacyPage />) },
-  { path: "/contact", element: deferred(<ContactPage />) },
   {
-    element: <RequireAuth />,
+    element: <RootLayout />,
     children: [
-      { path: "/onboarding", element: deferred(<OnboardingPage />) },
+      { path: "/", element: deferred(<LandingPage />) },
+      { path: "/auth", element: deferred(<AuthPage />) },
+      { path: "/reset-password", element: deferred(<ResetPasswordPage />) },
+      { path: "/pricing", element: deferred(<PricingPage />) },
+      { path: "/terms", element: deferred(<TermsPage />) },
+      { path: "/privacy", element: deferred(<PrivacyPage />) },
+      { path: "/contact", element: deferred(<ContactPage />) },
       {
-        element: <OnboardingGate />,
+        element: <RequireAuth />,
         children: [
+          { path: "/onboarding", element: deferred(<OnboardingPage />) },
           {
-            element: <AppLayout />,
+            element: <OnboardingGate />,
             children: [
-              { path: "/invoices", element: deferred(<InvoicesPage />) },
-              { path: "/invoices/new", element: deferred(<NewInvoicePage />) },
-              { path: "/invoices/editor", element: deferred(<InvoiceEditorPage />) },
-              { path: "/clients", element: deferred(<ClientsPage />) },
-              { path: "/catalog", element: deferred(<CatalogPage />) },
-              { path: "/settings", element: deferred(<SettingsPage />) },
-              { path: "/billing", element: deferred(<BillingPage />) },
-              { path: "*", element: <Navigate to="/invoices" replace /> },
+              {
+                element: <AppLayout />,
+                children: [
+                  { path: "/invoices", element: deferred(<InvoicesPage />) },
+                  { path: "/invoices/new", element: deferred(<NewInvoicePage />) },
+                  { path: "/invoices/editor", element: deferred(<InvoiceEditorPage />) },
+                  { path: "/clients", element: deferred(<ClientsPage />) },
+                  { path: "/catalog", element: deferred(<CatalogPage />) },
+                  { path: "/settings", element: deferred(<SettingsPage />) },
+                  { path: "/billing", element: deferred(<BillingPage />) },
+                  { path: "*", element: <Navigate to="/invoices" replace /> },
+                ],
+              },
             ],
           },
         ],

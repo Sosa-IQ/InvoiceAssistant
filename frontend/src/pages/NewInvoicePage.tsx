@@ -1,17 +1,16 @@
-import { useEffect, useRef, useState } from "react"
+import { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { FilePenLine, Loader2, Mic, Sparkles } from "lucide-react"
+import { FilePenLine, Loader2, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { ProLockedPanel } from "@/components/ProLockedPanel"
 import { createInvoiceDraft, generateInvoice } from "@/api/invoices"
-import { transcribeAudio } from "@/api/voice"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
 import { useProAccess } from "@/hooks/useProAccess"
 
 const MAX_CHARS = 8000
-const BTN_SIZE = 112 // px — matches w-28 h-28
 const DRAFT_KEY = "invoice_draft"
 
 export default function NewInvoicePage() {
@@ -20,134 +19,8 @@ export default function NewInvoicePage() {
   const [prompt, setPrompt] = useState("")
   const [loading, setLoading] = useState(false)
   const [manualLoading, setManualLoading] = useState(false)
-  const [recording, setRecording] = useState(false)
-  const [transcribing, setTranscribing] = useState(false)
-
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const audioCtxRef = useRef<AudioContext | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  const animFrameRef = useRef<number>(0)
-
-  // ── Waveform visualizer ──────────────────────────────────────────────────
-  function startVisualization(stream: MediaStream) {
-    const audioCtx = new AudioContext()
-    const analyser = audioCtx.createAnalyser()
-    analyser.fftSize = 64 // 32 frequency bins — enough for smooth bars
-    audioCtx.createMediaStreamSource(stream).connect(analyser)
-    audioCtxRef.current = audioCtx
-    analyserRef.current = analyser
-
-    const dataArray = new Uint8Array(analyser.frequencyBinCount)
-
-    function draw() {
-      animFrameRef.current = requestAnimationFrame(draw)
-      analyser.getByteFrequencyData(dataArray)
-
-      const canvas = canvasRef.current
-      if (!canvas) return
-      const ctx = canvas.getContext("2d")
-      if (!ctx) return
-
-      const { width, height } = canvas
-      ctx.clearRect(0, 0, width, height)
-
-      // Symmetric layout: compute half the bars, mirror each one
-      // Lower freq bins (louder for voice) land at the center; higher freqs at edges
-      const halfCount = 10
-      const barCount = halfCount * 2
-      const gap = 3
-      const barWidth = (width - gap * (barCount - 1)) / barCount
-      const centerY = height / 2
-
-      ctx.fillStyle = "rgba(255,255,255,0.92)"
-
-      function drawBar(context: CanvasRenderingContext2D, x: number, barHeight: number) {
-        const y = centerY - barHeight / 2
-        const r = barWidth / 2
-        context.beginPath()
-        context.moveTo(x + r, y)
-        context.arcTo(x + barWidth, y, x + barWidth, y + barHeight, r)
-        context.arcTo(x + barWidth, y + barHeight, x, y + barHeight, r)
-        context.arcTo(x, y + barHeight, x, y, r)
-        context.arcTo(x, y, x + barWidth, y, r)
-        context.closePath()
-        context.fill()
-      }
-
-      for (let i = 0; i < halfCount; i++) {
-        const sample = dataArray[Math.floor((i * dataArray.length) / halfCount)]
-        const barHeight = Math.max(4, (sample / 255) * height * 0.78)
-        // Right of center: bar slot (halfCount + i)
-        drawBar(ctx, (halfCount + i) * (barWidth + gap), barHeight)
-        // Left of center: mirrored bar slot (halfCount - 1 - i)
-        drawBar(ctx, (halfCount - 1 - i) * (barWidth + gap), barHeight)
-      }
-    }
-
-    draw()
-  }
-
-  function stopVisualization() {
-    cancelAnimationFrame(animFrameRef.current)
-    audioCtxRef.current?.close()
-    audioCtxRef.current = null
-    analyserRef.current = null
-  }
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      cancelAnimationFrame(animFrameRef.current)
-      audioCtxRef.current?.close()
-    }
-  }, [])
-
-  // ── Recording ────────────────────────────────────────────────────────────
-  async function startRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream)
-      const actualMimeType = recorder.mimeType || "audio/webm"
-      chunksRef.current = []
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data)
-      }
-
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop())
-        stopVisualization()
-        const blob = new Blob(chunksRef.current, { type: actualMimeType })
-        setTranscribing(true)
-        try {
-          const transcript = await transcribeAudio(blob)
-          if (transcript) {
-            setPrompt((prev) => (prev ? `${prev}\n${transcript}` : transcript))
-            toast.success("Voice transcribed.")
-          }
-        } catch {
-          toast.error("Transcription failed")
-        } finally {
-          setTranscribing(false)
-        }
-      }
-
-      recorder.start()
-      mediaRecorderRef.current = recorder
-      setRecording(true)
-      startVisualization(stream)
-    } catch {
-      toast.error("Microphone access denied.")
-    }
-  }
-
-  function stopRecording() {
-    mediaRecorderRef.current?.stop()
-    mediaRecorderRef.current = null
-    setRecording(false)
-  }
+  // True while the voice recorder is recording or transcribing.
+  const [voiceBusy, setVoiceBusy] = useState(false)
 
   // ── Generate ─────────────────────────────────────────────────────────────
   async function handleGenerate() {
@@ -194,44 +67,12 @@ export default function NewInvoicePage() {
 
       {!proLoading && isPro ? (
         <>
-          {/* Mic circle */}
-          <div className="flex flex-col items-center gap-3 rounded-[24px] border bg-card p-6 shadow-sm sm:p-8">
-            <button
-              type="button"
-              onClick={recording ? stopRecording : startRecording}
-              disabled={loading || manualLoading || transcribing}
-              title={recording ? "Click to stop" : "Click to record"}
-              className={[
-                "relative w-28 h-28 rounded-full overflow-hidden",
-                "flex items-center justify-center",
-                "transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
-                recording
-                  ? "bg-red-500 hover:bg-red-600 focus-visible:ring-red-500 shadow-lg shadow-red-200"
-                  : transcribing
-                  ? "bg-muted cursor-not-allowed opacity-60"
-                  : "cursor-pointer bg-[#ff6b55] text-white shadow-md hover:bg-[#eb5945] focus-visible:ring-primary",
-              ].join(" ")}
-            >
-              {transcribing ? (
-                <Loader2 className="h-9 w-9 animate-spin text-muted-foreground" />
-              ) : recording ? (
-                <canvas
-                  ref={canvasRef}
-                  width={BTN_SIZE}
-                  height={BTN_SIZE}
-                  className="absolute inset-0 pointer-events-none"
-                />
-              ) : (
-                <Mic className="h-9 w-9 text-white" />
-              )}
-            </button>
-            <p className="text-xs text-muted-foreground h-4">
-              {transcribing
-                ? "Transcribing…"
-                : recording
-                ? "Recording — click to stop"
-                : "Click to record"}
-            </p>
+          <div className="rounded-[24px] border bg-card p-6 shadow-sm sm:p-8">
+            <VoiceRecorder
+              disabled={loading || manualLoading}
+              onBusyChange={setVoiceBusy}
+              onTranscript={(transcript) => setPrompt((prev) => (prev ? `${prev}\n${transcript}` : transcript))}
+            />
           </div>
 
           {/* Prompt textarea */}
@@ -282,7 +123,7 @@ export default function NewInvoicePage() {
 
       <Button
         onClick={handleCreateManually}
-        disabled={loading || manualLoading || transcribing}
+        disabled={loading || manualLoading || voiceBusy}
         className="min-h-12 w-full rounded-xl"
         size="lg"
         variant={isPro ? "outline" : "default"}

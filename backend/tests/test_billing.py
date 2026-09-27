@@ -310,7 +310,7 @@ async def test_plans_use_stripe_authoritative_price_not_env_display(billing_api_
         "features": [
             "Unlimited invoice email delivery",
             "AI-assisted drafting and edits",
-            "Voice input",
+            "AI Voice input",
             "Automatic smart suggestions from your invoices",
         ],
     }
@@ -351,6 +351,19 @@ async def test_plans_fall_back_honestly_when_billing_disabled(
     assert body["configured"] is False
     assert body["plans"][1]["price_cents"] == 1200
     assert body["plans"][1]["currency"] == "USD"
+
+
+async def test_launch_discount_auto_applies_to_monthly_and_no_code_box(
+    billing_api_fixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request, owner, _, fake, _ = billing_api_fixture
+    monkeypatch.setattr(app_settings, "stripe_launch_promotion_code", "promo_launch")
+
+    response = await request(owner, "post", "/api/billing/checkout-session", json={"interval": "month"})
+    assert response.status_code == 200, response.text
+    checkout = fake.checkout_calls[-1]
+    assert checkout["promotion_code"] == "promo_launch"
+    assert checkout["allow_promotion_codes"] is False
 
 
 async def test_checkout_is_server_owned_and_persists_idempotency_args(billing_api_fixture) -> None:

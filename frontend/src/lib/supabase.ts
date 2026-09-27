@@ -10,6 +10,16 @@ export const missingSupabaseEnvVars = [
 
 export const isSupabaseConfigured = missingSupabaseEnvVars.length === 0
 
+// Read the auth redirect before the client consumes and clears the URL fragment.
+function readAuthRedirect() {
+  if (typeof window === "undefined") return { recovery: false, error: null as string | null }
+  const params = new URLSearchParams(window.location.hash.slice(1))
+  return { recovery: params.get("type") === "recovery", error: params.get("error_code") }
+}
+
+/** How this page load arrived: from a password-recovery link, or from an expired/used one. */
+export const initialAuthRedirect = readAuthRedirect()
+
 export const supabase = createClient(
   supabaseUrl || "http://localhost",
   supabaseAnonKey || "missing-anon-key"

@@ -5,6 +5,7 @@ import { PublicShell } from "@/components/PublicShell"
 import { Button } from "@/components/ui/button"
 import { APP_BLURB, APP_NAME } from "@/lib/brand"
 import PageLoading from "@/components/PageLoading"
+import { freeEmailPhrase, useFreeEmailLimit } from "@/hooks/useFreeEmailLimit"
 
 const STEPS = [
   {
@@ -17,11 +18,11 @@ const STEPS = [
   },
   {
     title: "Send when you are ready",
-    body: "Email the PDF straight to your client. With Pro, send unlimited emails, use voice, and let AI help revise drafts.",
+    body: "Email the PDF straight to your client. With Pro, send unlimited emails, use AI voice input, and let AI help revise drafts.",
   },
 ]
 
-const FEATURES = [
+const features = (freeEmails: string) => [
   {
     icon: FileText,
     title: "Free forever basics",
@@ -35,7 +36,7 @@ const FEATURES = [
   {
     icon: Mail,
     title: "Email delivery",
-    body: "Send the PDF to your client and keep a simple history of what went out. Free includes 5 emails a month.",
+    body: `Send the PDF to your client and keep a simple history of what went out. Free includes ${freeEmails}.`,
   },
   {
     icon: Mic,
@@ -56,6 +57,7 @@ const FEATURES = [
 
 export default function LandingPage() {
   const { user, loading } = useAuth()
+  const freeEmailLimit = useFreeEmailLimit()
 
   if (loading) return <PageLoading />
   if (user) return <Navigate to="/invoices" replace />
@@ -103,7 +105,7 @@ export default function LandingPage() {
         <div className="mx-auto max-w-6xl">
           <h2 className="text-2xl font-black tracking-tight sm:text-3xl">Built for real small businesses</h2>
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {FEATURES.map((feature) => (
+            {features(freeEmailPhrase(freeEmailLimit)).map((feature) => (
               <article key={feature.title} className="h-full rounded-[24px] border border-border bg-card p-5 shadow-sm">
                 <feature.icon className="h-6 w-6 text-primary" aria-hidden />
                 <h3 className="mt-4 text-lg font-black">{feature.title}</h3>
