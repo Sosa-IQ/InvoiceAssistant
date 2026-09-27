@@ -44,6 +44,9 @@ export type UsageStatus = {
   packs_frozen: boolean
   ai_pack_configured: boolean
   voice_pack_configured: boolean
+  /** Monthly invoice emails allowed on Free; null means unlimited. */
+  email_monthly_limit: number | null
+  emails_sent_this_period: number
 }
 
 export type BillingSession = { url: string }

@@ -42,10 +42,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("application_stopping")
 
 
+# Interactive docs and the schema map every endpoint; only expose them outside production.
+_expose_docs = app_settings.app_environment.strip().lower() not in {"production", "prod"}
+
 app = FastAPI(
     title="Cuenvia API",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if _expose_docs else None,
+    redoc_url="/redoc" if _expose_docs else None,
+    openapi_url="/openapi.json" if _expose_docs else None,
 )
 
 
@@ -86,6 +92,9 @@ async def request_observability(request: Request, call_next):
     return response
 
 
+VERCEL_ORIGIN_REGEX = r"https://cuenvia((-[a-z0-9-]+)?-sosa-iqs-projects)?\.vercel\.app"
+
+
 def _cors_allow_origins() -> list[str]:
     """Browser origins permitted to call the API with credentials."""
     origins = [app_settings.frontend_url]
@@ -100,8 +109,9 @@ def _cors_allow_origins() -> list[str]:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allow_origins(),
-    # Vercel preview deployments: https://<branch>-<team>.vercel.app
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    # This project's Vercel URLs only (production alias and team-scoped previews such as
+    # cuenvia-git-<branch>-sosa-iqs-projects.vercel.app), not every *.vercel.app site.
+    allow_origin_regex=VERCEL_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

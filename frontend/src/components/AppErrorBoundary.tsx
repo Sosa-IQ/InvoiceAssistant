@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react"
+import { Sentry } from "@/lib/sentry"
 
 interface Props {
   children: ReactNode
@@ -20,6 +21,7 @@ export default class AppErrorBoundary extends Component<Props, State> {
       exceptionType: error.name,
       componentStackPresent: Boolean(info.componentStack),
     })
+    Sentry.captureException(error, { contexts: { react: { componentStack: info.componentStack ?? "" } } })
   }
 
   render() {

@@ -46,6 +46,7 @@ from app.services.pdf_parser import PDFParserService
 from app.services.rag_service import RAGService
 from app.services.storage import StorageService
 from app.services.usage_service import (
+    ensure_email_allowance,
     consume_ai_tokens,
     ensure_ai_budget_before_call,
     user_is_pro,
@@ -790,10 +791,9 @@ async def delete_invoice(
         await vector_store.delete_document(db, doc_id=record.rag_doc_id, user_id=current_user.id)
         logger.info("Removed vectors for doc_id=%s", record.rag_doc_id)
 
-    # Delete the PDF file from disk (best-effort)
-    pdf_path = Path(record.file_path)
-    if pdf_path.exists():
-        pdf_path.unlink()
+    # Delete the cached PDF from disk (best-effort), only from this user's own folder
+    if storage.is_user_local_path(current_user.id, record.file_path):
+        Path(record.file_path).unlink(missing_ok=True)
         logger.info("invoice_pdf_deleted")
 
     await db.delete(record)
@@ -896,7 +896,7 @@ async def send_invoice(
     record_id: int,
     request: Request,
     body: SendInvoiceRequest,
-    current_user: AuthenticatedUser = Depends(require_pro_entitlement),
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SendInvoiceResponse:
     record = await _get_owned_invoice_record(db, current_user.id, record_id)
@@ -1026,6 +1026,9 @@ async def send_invoice(
                         f"Reconcile email attempt {email_record.id} before retrying."
                     ),
                 )
+
+    # Free accounts get a monthly allowance; replays of sent emails returned above never count.
+    await ensure_email_allowance(db, current_user.id)
 
     if email_record is None:
         email_record = InvoiceEmail(

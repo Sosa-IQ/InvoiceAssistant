@@ -439,3 +439,38 @@ async def test_email_rate_limit_blocks_before_smtp(seeded_api, monkeypatch) -> N
     assert blocked.status_code == 429, blocked.text
     assert blocked.headers["retry-after"] == "60"
     assert len(harness["emails"].sent) == 1
+
+
+async def test_free_accounts_get_a_monthly_email_allowance(seeded_api, monkeypatch) -> None:
+    """Free sends are capped per month; replays and failed attempts don't use the allowance."""
+    from app.api import invoices as invoices_api
+    from app.config import settings
+
+    request, owner, harness = seeded_api
+    monkeypatch.setattr(settings, "billing_enforcement_enabled", True)
+    monkeypatch.setattr(settings, "free_monthly_email_limit", 2)
+    path = f"/api/invoices/{owner.invoice_record_id}/send"
+
+    def send(key: str):
+        return request(owner, "post", path, json={"subject": "Invoice", "message": "Attached.", "idempotency_key": key})
+
+    assert (await send("free-1")).status_code == 200
+    # Replaying a completed send returns the original result and does not count again.
+    assert (await send("free-1")).status_code == 200
+
+    async def failing_mailer(**_kwargs):
+        raise ConnectionError("smtp down")
+
+    monkeypatch.setattr(invoices_api.email_svc, "send_invoice_email", failing_mailer)
+    assert (await send("free-fails")).status_code == 502
+    monkeypatch.setattr(invoices_api.email_svc, "send_invoice_email", harness["emails"])
+
+    assert (await send("free-2")).status_code == 200
+    blocked = await send("free-3")
+    assert blocked.status_code == 402
+    assert "2 invoice emails per month" in blocked.json()["detail"]
+    assert len(harness["emails"].sent) == 2
+
+    usage = (await request(owner, "get", "/api/billing/usage")).json()
+    assert usage["email_monthly_limit"] == 2
+    assert usage["emails_sent_this_period"] == 2

@@ -103,7 +103,7 @@ export default function PricingPage() {
           <p className="text-sm font-black uppercase tracking-[0.16em] text-[#e45441]">Pricing</p>
           <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Simple plans. No mystery.</h1>
           <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-[#557067]">
-            Free covers manual invoicing and PDFs. Pro adds email, AI drafting and edits, and voice.
+            Free covers manual invoicing, PDFs, and 5 invoice emails a month. Pro adds unlimited email, AI drafting and edits, and voice.
           </p>
         </div>
 

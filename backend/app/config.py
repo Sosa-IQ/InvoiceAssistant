@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0
     email_send_limit: int = 10
+    # Invoice emails Free accounts may send per calendar month (Pro is unlimited). 0 disables Free email.
+    free_monthly_email_limit: int = 5
     email_send_window_seconds: int = 600
     email_send_lease_seconds: int = 900
     invoice_generation_limit: int = 15
@@ -109,6 +111,8 @@ class Settings(BaseSettings):
             self.ai_pack_tokens,
             self.voice_pack_seconds,
         )
+        if self.free_monthly_email_limit < 0:
+            raise ValueError("FREE_MONTHLY_EMAIL_LIMIT must be 0 or greater.")
         if any(value < 1 for value in limits):
             raise ValueError("Rate limits and windows must be positive.")
         stripe_values = (

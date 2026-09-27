@@ -693,3 +693,110 @@ async def test_invoice_json_of_one_tenant_never_names_the_other(isolated_api) ->
     blob = json.dumps(listed)
 
     assert "Alice" not in blob, OTHER
+
+
+# ---------------------------------------------------------------------------
+# Account deletion
+# ---------------------------------------------------------------------------
+
+_OWNED_TABLES = (
+    "profiles",
+    "business_settings",
+    "clients",
+    "client_addresses",
+    "catalog_items",
+    "invoice_records",
+    "invoice_embeddings",
+    "invoice_emails",
+)
+
+
+async def test_account_deletion_removes_every_owned_row_and_spares_other_tenant(
+    isolated_api, monkeypatch
+) -> None:
+    request, alice, bob, _harness, url = isolated_api
+    from app.api import auth as auth_api
+    from app.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "supabase_url", "https://project.test")
+    monkeypatch.setattr(app_settings, "supabase_service_role_key", "service-role-for-test")
+
+    listed: list[str] = []
+
+    async def fake_list(prefix: str) -> list[str]:
+        listed.append(prefix)
+        return []
+
+    async def fake_delete_auth_user(user_id: str) -> None:
+        # Stand-in for Supabase's admin API: removing the auth user is what
+        # triggers the cascade in production.
+        conn = await asyncpg.connect(asyncpg_dsn(url))
+        try:
+            await conn.execute("DELETE FROM auth.users WHERE id = $1::uuid", user_id)
+        finally:
+            await conn.close()
+
+    monkeypatch.setattr(auth_api.supabase_svc, "list_object_paths", fake_list)
+    monkeypatch.setattr(auth_api.supabase_svc, "delete_auth_user", fake_delete_auth_user)
+
+    response = await request(alice, "delete", "/api/auth/account", json={"confirm_email": "bob@example.com"})
+    assert response.status_code == 400
+
+    response = await request(alice, "delete", "/api/auth/account", json={"confirm_email": "ALICE@example.com"})
+    assert response.status_code == 204, response.text
+    assert listed == [alice.id]
+
+    conn = await asyncpg.connect(asyncpg_dsn(url))
+    try:
+        for table in _OWNED_TABLES:
+            column = "id" if table == "profiles" else "user_id"
+            alice_rows = await conn.fetchval(
+                f"SELECT count(*) FROM public.{table} WHERE {column} = $1::uuid", alice.id
+            )
+            bob_rows = await conn.fetchval(
+                f"SELECT count(*) FROM public.{table} WHERE {column} = $1::uuid", bob.id
+            )
+            assert alice_rows == 0, f"{table} still has rows for the deleted account"
+            assert bob_rows > 0, f"{table} lost the other tenant's rows"
+    finally:
+        await conn.close()
+
+    response = await request(bob, "get", "/api/invoices")
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+# ---------------------------------------------------------------------------
+# Local PDF cache (used when Supabase Storage is not configured)
+# ---------------------------------------------------------------------------
+
+async def test_same_invoice_number_keeps_separate_local_pdfs(isolated_api) -> None:
+    """Two tenants whose invoices get the same number must not share a cached PDF."""
+    request, alice, bob, _, _ = isolated_api
+
+    records = {}
+    for tenant, label in ((alice, "Alice"), (bob, "Bob")):
+        # Same client name -> same client code -> same invoice number for both tenants.
+        response = await request(tenant, "post", "/api/clients", json={"name": "Acme Shared"})
+        assert response.status_code == 201, response.text
+        payload = _invoice_payload(tenant, label)
+        payload["to"]["client_id"] = response.json()["id"]
+        payload["to"]["name"] = "Acme Shared"
+        response = await request(tenant, "post", "/api/invoices/export", json=payload)
+        assert response.status_code == 200, response.text
+        listing = (await request(tenant, "get", "/api/invoices")).json()
+        records[label] = next(r for r in listing if r["client_name"] == "Acme Shared")
+
+    assert records["Alice"]["invoice_number"] == records["Bob"]["invoice_number"]
+
+    alice_pdf = await request(alice, "get", f"/api/invoices/{records['Alice']['id']}/download")
+    bob_pdf = await request(bob, "get", f"/api/invoices/{records['Bob']['id']}/download")
+    assert alice_pdf.status_code == bob_pdf.status_code == 200
+    assert alice_pdf.content != bob_pdf.content, "tenants were served the same cached PDF"
+
+    # Deleting Alice's invoice must not remove Bob's cached file.
+    response = await request(alice, "delete", f"/api/invoices/{records['Alice']['id']}")
+    assert response.status_code == 204
+    bob_again = await request(bob, "get", f"/api/invoices/{records['Bob']['id']}/download")
+    assert bob_again.status_code == 200
+    assert bob_again.content == bob_pdf.content

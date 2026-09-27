@@ -370,6 +370,10 @@ class AuthMeResponse(BaseModel):
     user: ProfileRead
 
 
+class AccountDeleteRequest(BaseModel):
+    confirm_email: str = Field(min_length=1, max_length=320)
+
+
 class InvoiceEmailRead(BaseModel):
     id: int
     user_id: str
@@ -490,6 +494,9 @@ class UsageStatusRead(BaseModel):
     packs_frozen: bool
     ai_pack_configured: bool
     voice_pack_configured: bool
+    # None means unlimited (Pro, or billing enforcement off).
+    email_monthly_limit: int | None = None
+    emails_sent_this_period: int = 0
 
 
 class PackCheckoutRequest(BaseModel):
