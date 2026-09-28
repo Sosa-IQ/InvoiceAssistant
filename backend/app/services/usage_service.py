@@ -71,14 +71,14 @@ def _ratio(used: int, included: int) -> float:
 
 
 def estimate_ai_cost_micros(tokens_in: int, tokens_out: int) -> int:
-    """Rough gpt-4o-mini estimate in microdollars (1e-6 USD)."""
-    # $0.15 / 1M in, $0.60 / 1M out → micros per token
-    return int(tokens_in * 0.15 + tokens_out * 0.60)
+    """Rough gpt-6-luna estimate in microdollars (1e-6 USD)."""
+    # $0.10 / 1M in, $0.50 / 1M out → micros per token
+    return int(tokens_in * 0.10 + tokens_out * 0.50)
 
 
 def estimate_voice_cost_micros(audio_seconds: int) -> int:
-    """Conservative Speechmatics-class estimate (~$0.30 / audio hour)."""
-    return int(audio_seconds * (0.30 * 1_000_000 / 3600))
+    """Speechmatics Melia 1 batch estimate ($0.129 / audio hour, billed per second)."""
+    return int(audio_seconds * (0.129 * 1_000_000 / 3600))
 
 
 async def _sum_period(

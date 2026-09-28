@@ -46,13 +46,14 @@ def _estimate_audio_seconds(contents: bytes, content_type: str) -> int:
 async def _transcribe(audio_bytes: bytes, filename: str, content_type: str) -> str:
     """Submit audio to Speechmatics, poll until done, return plain-text transcript."""
     headers = {"Authorization": f"Bearer {settings.speechmatics_api_key}"}
+    # Melia 1 detects and code-switches across 55+ languages on its own; it
+    # requires "multi" (it rejects "auto"). Translation to English happens later,
+    # when the AI drafts the invoice from this transcript.
     config = {
         "type": "transcription",
         "transcription_config": {
-            "language": "auto",
-        },
-        "language_identification_config": {
-            "expected_languages": ["en", "es"],
+            "model": "melia-1",
+            "language": "multi",
         },
     }
     ct = content_type.split(";")[0]
@@ -97,7 +98,7 @@ async def transcribe_audio(
 ) -> TranscriptResponse:
     """
     Accept an audio recording and return a transcript via Speechmatics.
-    Automatically detects English or Spanish, including mixed-language recordings.
+    Detects the spoken language automatically, including mixed-language recordings.
     """
     if not settings.speechmatics_api_key:
         raise HTTPException(503, "SPEECHMATICS_API_KEY is not configured.")

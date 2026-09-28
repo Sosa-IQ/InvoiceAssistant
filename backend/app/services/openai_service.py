@@ -50,6 +50,15 @@ _SCHEMA_EXAMPLE = {
 }
 
 
+# Voice notes arrive as raw transcripts in whatever language the user spoke,
+# so the model owns translation: invoices are always written in English.
+_LANGUAGE_RULES = """- The user may write or speak in any language, or mix languages. It may be a voice transcript with transcription errors
+- Write every text field you produce (line item descriptions, units, notes) in English, translating from the user's language
+- Never translate proper nouns: keep people's and business names, street addresses, and emails exactly as given
+- Copy names, addresses, and catalog descriptions from the stored data below verbatim instead of translating them
+- Voice transcripts can garble words and spoken numbers; infer the intended work, quantity, and unit price from context"""
+
+
 def _build_system_prompt(
     business_profile: dict,
     rag_context: str,
@@ -80,7 +89,7 @@ Rules:
 - Use null (never "") for unknown optional fields
 - Set invoice_number to "{next_invoice_number}" exactly — do not change it
 - Populate the "from" block from the BUSINESS PROFILE below
-- If the user's prompt is not in English, translate invoice text fields to English before returning JSON
+{_LANGUAGE_RULES}
 {single_client_rule}- If the prompt mentions a client name or partial address, match to the CLIENT DATA below
 - Set to.client_id to the matched client's id, and copy their name, email, phone into the "to" block
 - Match partial addresses (e.g. "21 Wake Ave") to the closest full address in the client's addresses list; always use the FULL stored address string, never the partial text from the prompt
@@ -115,6 +124,7 @@ def _extract_json(raw: str) -> dict:
 
 class OpenAIService:
     MAX_RETRIES = 2
+    CHAT_MODEL = "gpt-6-luna"
     EMBEDDING_MODEL = "text-embedding-3-small"
 
     def __init__(self) -> None:
@@ -141,7 +151,7 @@ class OpenAIService:
         catalog_context: list[dict] | None = None,
     ) -> tuple[InvoiceData, int, int]:
         """
-        Call gpt-4o-mini and return (InvoiceData, tokens_in, tokens_out).
+        Call the chat model and return (InvoiceData, tokens_in, tokens_out).
 
         Retries up to MAX_RETRIES times on JSON/validation failure.
         Raises ValueError (caught by the route and returned as HTTP 422)
@@ -177,7 +187,7 @@ Rules:
 - Use today's date ({today}) only if the user asks to change the issue date and does not specify one
 - Use null (never "") for unknown optional fields
 - Do not invent work the user did not request
-- If the instruction is not in English, translate edited invoice text fields to English
+{_LANGUAGE_RULES}
 
 SCHEMA:
 {schema_json}
@@ -200,13 +210,17 @@ CURRENT INVOICE:
                 logger.warning("Retrying OpenAI call (attempt %d/%d)...", attempt + 1, self.MAX_RETRIES + 1)
 
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=self.CHAT_MODEL,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_content},
                 ],
+                # Structured extraction needs no chain of thought; "none" keeps
+                # reasoning tokens (billed as output) at zero.
+                reasoning_effort="none",
+                response_format={"type": "json_object"},
                 temperature=0.2,
-                max_tokens=2048,
+                max_completion_tokens=2048,
             )
             usage = getattr(response, "usage", None)
             if usage is not None:
