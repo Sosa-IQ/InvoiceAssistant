@@ -161,7 +161,6 @@ SUPABASE_SERVICE_ROLE_KEY=...
 SUPABASE_STORAGE_BUCKET=invoices
 
 OPENAI_API_KEY=sk-...
-SPEECHMATICS_API_KEY=   # if used
 
 SMTP_HOST=email-smtp.us-east-1.amazonaws.com
 SMTP_PORT=587

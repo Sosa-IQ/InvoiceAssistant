@@ -1,26 +1,28 @@
 import asyncio
-import json
 import logging
 import math
+import re
 import struct
 import wave
 from io import BytesIO
 
-import httpx
+import openai
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.billing import require_pro_entitlement
 from app.auth import AuthenticatedUser
 from app.config import settings
 from app.database import get_db
+from app.models.db_models import CatalogItem, Client
+from app.services.openai_service import OpenAIService
 from app.services.usage_service import consume_voice_seconds, ensure_voice_budget_before_call
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/voice", tags=["voice"])
-
-_SPEECHMATICS_URL = "https://asr.api.speechmatics.com/v2"
+openai_svc = OpenAIService()
 
 
 class TranscriptResponse(BaseModel):
@@ -43,50 +45,25 @@ def _estimate_audio_seconds(contents: bytes, content_type: str) -> int:
     return min(approx, settings.voice_max_seconds_per_clip)
 
 
-async def _transcribe(audio_bytes: bytes, filename: str, content_type: str) -> str:
-    """Submit audio to Speechmatics, poll until done, return plain-text transcript."""
-    headers = {"Authorization": f"Bearer {settings.speechmatics_api_key}"}
-    # Melia 1 detects and code-switches across 55+ languages on its own; it
-    # requires "multi" (it rejects "auto"). Translation to English happens later,
-    # when the AI drafts the invoice from this transcript.
-    config = {
-        "type": "transcription",
-        "transcription_config": {
-            "model": "melia-1",
-            "language": "multi",
-        },
-    }
-    ct = content_type.split(";")[0]
+_MAX_KEYWORDS = 100
+_MAX_KEYWORD_CHARS = 80
 
-    async with httpx.AsyncClient(headers=headers, timeout=120.0) as client:
-        r = await client.post(
-            f"{_SPEECHMATICS_URL}/jobs",
-            files={"data_file": (filename, audio_bytes, ct)},
-            data={"config": json.dumps(config)},
-        )
-        r.raise_for_status()
-        job_id = r.json()["id"]
-        logger.info("transcription_job_submitted")
 
-        for _ in range(90):
-            await asyncio.sleep(1)
-            r = await client.get(f"{_SPEECHMATICS_URL}/jobs/{job_id}")
-            r.raise_for_status()
-            status = r.json()["job"]["status"]
-            logger.debug("transcription_job_status_%s", status)
-            if status == "done":
-                break
-            if status in ("rejected", "deleted", "expired"):
-                raise ValueError(f"Speechmatics job ended with status: {status}")
-        else:
-            raise TimeoutError("Transcription job timed out after 90 seconds.")
-
-        r = await client.get(
-            f"{_SPEECHMATICS_URL}/jobs/{job_id}/transcript",
-            params={"format": "txt"},
-        )
-        r.raise_for_status()
-        return r.text.strip()
+async def _transcription_keywords(db: AsyncSession, user_id: str) -> list[str]:
+    """This user's client names and catalog items, to bias recognition toward them."""
+    clients = await db.execute(select(Client.name).where(Client.user_id == user_id).order_by(Client.name))
+    catalog = await db.execute(
+        select(CatalogItem.description).where(CatalogItem.user_id == user_id).order_by(CatalogItem.description)
+    )
+    keywords: list[str] = []
+    for raw in [*clients.scalars(), *catalog.scalars()]:
+        # The API requires one line per keyword without angle brackets.
+        term = " ".join(re.sub(r"[<>]", " ", raw or "").split())[:_MAX_KEYWORD_CHARS].strip()
+        if term and term not in keywords:
+            keywords.append(term)
+        if len(keywords) >= _MAX_KEYWORDS:
+            break
+    return keywords
 
 
 @router.post("/transcribe", response_model=TranscriptResponse)
@@ -97,11 +74,12 @@ async def transcribe_audio(
     db: AsyncSession = Depends(get_db),
 ) -> TranscriptResponse:
     """
-    Accept an audio recording and return a transcript via Speechmatics.
+    Accept an audio recording and return a transcript via OpenAI gpt-transcribe.
     Detects the spoken language automatically, including mixed-language recordings.
+    Translation to English happens later, when the AI drafts the invoice.
     """
-    if not settings.speechmatics_api_key:
-        raise HTTPException(503, "SPEECHMATICS_API_KEY is not configured.")
+    if not settings.openai_api_key:
+        raise HTTPException(503, "OPENAI_API_KEY is not configured.")
 
     contents = await audio.read()
     if not contents:
@@ -130,7 +108,8 @@ async def transcribe_audio(
 
     logger.info("transcription_started")
     try:
-        transcript = await _transcribe(contents, filename, content_type)
+        keywords = await _transcription_keywords(db, current_user.id)
+        transcript = await asyncio.to_thread(openai_svc.transcribe, contents, filename, keywords)
         await consume_voice_seconds(
             db,
             user_id=current_user.id,
@@ -139,7 +118,7 @@ async def transcribe_audio(
         )
         logger.info("transcription_completed")
         return TranscriptResponse(transcript=transcript)
-    except httpx.HTTPStatusError as exc:
+    except openai.APIError as exc:
         logger.error("transcription_provider_failed")
         raise HTTPException(502, "Transcription provider failed.") from exc
     except HTTPException:

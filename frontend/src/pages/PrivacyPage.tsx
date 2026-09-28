@@ -12,9 +12,8 @@ const PROCESSORS = [
   {
     name: "OpenAI",
     purpose:
-      "AI invoice drafting, edits, smart suggestions, and translating non-English input into English, only when you use those features",
+      "AI invoice drafting, edits, smart suggestions, voice transcription, and translating non-English input into English, only when you use those features",
   },
-  { name: "Speechmatics", purpose: "Transcribing voice recordings, only when you use voice input" },
 ]
 
 const linkClass = "font-bold text-foreground underline-offset-4 hover:underline"
@@ -62,11 +61,10 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-black text-foreground">AI and voice features</h2>
           <p>
             When you use AI drafting, AI edits, or smart suggestions, the relevant invoice text is sent to OpenAI to
-            produce the result. When you use voice input, your recording is sent to Speechmatics for transcription, and
-            the transcript is then sent to OpenAI to draft the invoice in English. We do not keep the audio. These
-            providers process the data to return results to us under their API terms. OpenAI does not use API data to
-            train its models by default. If you do not use these features, your content is not
-            sent to them.
+            produce the result. When you use voice input, your recording is sent to OpenAI for transcription, and the
+            transcript is then used to draft the invoice in English. We do not keep the audio. OpenAI processes the data
+            to return results to us under its API terms and does not use API data to train its models by default. If you
+            do not use these features, your content is not sent to OpenAI.
           </p>
 
           <h2 className="text-lg font-black text-foreground">Service providers</h2>

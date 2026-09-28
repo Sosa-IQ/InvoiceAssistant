@@ -126,6 +126,14 @@ class OpenAIService:
     MAX_RETRIES = 2
     CHAT_MODEL = "gpt-6-luna"
     EMBEDDING_MODEL = "text-embedding-3-small"
+    TRANSCRIBE_MODEL = "gpt-transcribe"
+    # Frames the recording so the model favors invoice vocabulary and keeps
+    # mid-sentence language switches instead of dropping one language.
+    TRANSCRIBE_CONTEXT = (
+        "A small-business owner dictating invoice details: client names, work done, "
+        "quantities, hours, and prices. The speaker may use any language and may "
+        "switch languages mid-sentence."
+    )
 
     def __init__(self) -> None:
         self.client = OpenAI(api_key=settings.openai_api_key)
@@ -140,6 +148,19 @@ class OpenAIService:
             input=texts,
         )
         return [list(item.embedding) for item in response.data]
+
+    def transcribe(self, audio_bytes: bytes, filename: str, keywords: list[str]) -> str:
+        """Return a plain-text transcript; the spoken language is auto-detected."""
+        extra_body = {"keywords": keywords} if keywords else None
+        transcript = self.client.audio.transcriptions.create(
+            model=self.TRANSCRIBE_MODEL,
+            file=(filename, audio_bytes),
+            prompt=self.TRANSCRIBE_CONTEXT,
+            response_format="text",
+            extra_body=extra_body,
+        )
+        text = transcript if isinstance(transcript, str) else transcript.text
+        return text.strip()
 
     def generate_invoice(
         self,

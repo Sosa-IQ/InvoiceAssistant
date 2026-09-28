@@ -77,8 +77,8 @@ def estimate_ai_cost_micros(tokens_in: int, tokens_out: int) -> int:
 
 
 def estimate_voice_cost_micros(audio_seconds: int) -> int:
-    """Speechmatics Melia 1 batch estimate ($0.129 / audio hour, billed per second)."""
-    return int(audio_seconds * (0.129 * 1_000_000 / 3600))
+    """OpenAI gpt-transcribe estimate ($0.0045 / audio minute = $0.27 / hour)."""
+    return int(audio_seconds * (0.27 * 1_000_000 / 3600))
 
 
 async def _sum_period(
