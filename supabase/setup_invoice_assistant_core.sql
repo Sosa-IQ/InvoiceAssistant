@@ -192,7 +192,7 @@ create table if not exists public.usage_pack_credits (
   stripe_payment_intent_id varchar(255),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint ck_usage_pack_credits_kind check (pack_kind in ('ai_tokens', 'voice_seconds')),
+  constraint ck_usage_pack_credits_kind check (pack_kind in ('ai_topup', 'ai_tokens', 'voice_seconds')),
   constraint ck_usage_pack_tokens_remaining check (tokens_remaining >= 0),
   constraint ck_usage_pack_voice_seconds_remaining check (voice_seconds_remaining >= 0),
   constraint uq_usage_pack_credits_checkout_session unique (stripe_checkout_session_id)

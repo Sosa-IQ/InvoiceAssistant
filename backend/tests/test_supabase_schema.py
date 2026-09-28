@@ -57,7 +57,7 @@ def test_core_schema_declares_usage_metering_tables() -> None:
     assert "create table if not exists public.usage_events" in schema
     assert "create table if not exists public.usage_pack_credits" in schema
     assert "feature in ('ai_text', 'voice')" in schema
-    assert "pack_kind in ('ai_tokens', 'voice_seconds')" in schema
+    assert "pack_kind in ('ai_topup', 'ai_tokens', 'voice_seconds')" in schema
     assert "usage_events_owner_select" in schema
     assert "usage_pack_credits_owner_select" in schema
 

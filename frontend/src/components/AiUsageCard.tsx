@@ -77,6 +77,11 @@ export default function AiUsageCard() {
           >
             <div className="h-full rounded-full bg-chart-2 transition-all" style={{ width: `${voicePct}%` }} />
           </div>
+          {usage.voice_seconds_pack_remaining > 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Top-up balance available{usage.packs_frozen ? " (frozen until Pro returns)" : ""}.
+            </p>
+          )}
         </div>
       </div>
 
@@ -91,9 +96,9 @@ export default function AiUsageCard() {
           </p>
           <p>Voice usage covers transcription time. Keep clips short for best results.</p>
           <p>
-            Your plan’s included AI and voice reset each billing period and do not roll over. Top-up packs you buy roll
-            until they are used, but only while Pro is active. If Pro ends, top-ups freeze and return when you
-            resubscribe.
+            Your plan’s included AI and voice reset each billing period and do not roll over. An AI top-up adds extra
+            AI and voice together and rolls until it is used, but only while Pro is active. If Pro ends, top-ups
+            freeze and return when you resubscribe.
           </p>
           <p>You can always create and edit invoices manually, even if AI usage is full.</p>
         </div>

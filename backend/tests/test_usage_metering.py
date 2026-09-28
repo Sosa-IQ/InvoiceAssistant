@@ -85,7 +85,7 @@ async def test_pack_balance_freezes_without_pro(usage_api) -> None:
         await usage_service.credit_pack_from_checkout(
             session,
             user_id=owner.id,
-            pack_kind=usage_service.PACK_AI,
+            pack_kind=usage_service.PACK_AI_TOPUP,
             checkout_session_id="cs_pack_1",
             payment_intent_id="pi_1",
         )
@@ -93,8 +93,10 @@ async def test_pack_balance_freezes_without_pro(usage_api) -> None:
 
     pro_usage = (await request(owner, "get", "/api/billing/usage")).json()
     assert pro_usage["ai_tokens_pack_remaining"] == app_settings.ai_pack_tokens
+    assert pro_usage["voice_seconds_pack_remaining"] == app_settings.voice_pack_seconds
     assert pro_usage["packs_frozen"] is False
     assert pro_usage["ai_tokens_remaining"] > pro_usage["ai_tokens_included"]
+    assert pro_usage["voice_seconds_remaining"] > pro_usage["voice_seconds_included"]
 
     async with harness["session_factory"]() as session:
         row = (
@@ -107,8 +109,49 @@ async def test_pack_balance_freezes_without_pro(usage_api) -> None:
     free_usage = (await request(owner, "get", "/api/billing/usage")).json()
     assert free_usage["pro_entitled"] is False
     assert free_usage["ai_tokens_pack_remaining"] == app_settings.ai_pack_tokens
+    assert free_usage["voice_seconds_pack_remaining"] == app_settings.voice_pack_seconds
     assert free_usage["packs_frozen"] is True
     assert free_usage["ai_tokens_remaining"] == 0
+    assert free_usage["voice_seconds_remaining"] == 0
+
+
+@pytest.mark.asyncio
+async def test_ai_topup_spends_tokens_and_voice_independently(usage_api) -> None:
+    request, owner, harness = usage_api
+    await _make_pro(harness, owner.id)
+
+    async with harness["session_factory"]() as session:
+        await usage_service.credit_pack_from_checkout(
+            session,
+            user_id=owner.id,
+            pack_kind=usage_service.PACK_AI_TOPUP,
+            checkout_session_id="cs_topup_1",
+            payment_intent_id="pi_topup_1",
+        )
+        # Replayed webhook must not double-credit.
+        await usage_service.credit_pack_from_checkout(
+            session,
+            user_id=owner.id,
+            pack_kind=usage_service.PACK_AI_TOPUP,
+            checkout_session_id="cs_topup_1",
+            payment_intent_id="pi_topup_1",
+        )
+        await session.commit()
+
+    async with harness["session_factory"]() as session:
+        # 120 included voice seconds, so 30 come from the pack.
+        await usage_service.consume_voice_seconds(
+            session, user_id=owner.id, audio_seconds=150, request_id="req-voice"
+        )
+    async with harness["session_factory"]() as session:
+        # 1,000 included tokens, so 200 come from the pack.
+        await usage_service.consume_ai_tokens(
+            session, user_id=owner.id, tokens_in=1_000, tokens_out=200, request_id="req-ai"
+        )
+
+    usage = (await request(owner, "get", "/api/billing/usage")).json()
+    assert usage["voice_seconds_pack_remaining"] == app_settings.voice_pack_seconds - 30
+    assert usage["ai_tokens_pack_remaining"] == app_settings.ai_pack_tokens - 200
 
 
 @pytest.mark.asyncio
@@ -120,6 +163,6 @@ async def test_pack_checkout_requires_pro(usage_api, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(app_settings, "stripe_ai_pack_price_id", "price_ai_pack")
 
     denied = await request(
-        owner, "post", "/api/billing/pack-checkout-session", json={"pack": "ai_tokens"}
+        owner, "post", "/api/billing/pack-checkout-session", json={"pack": "ai_topup"}
     )
     assert denied.status_code == 402, denied.text

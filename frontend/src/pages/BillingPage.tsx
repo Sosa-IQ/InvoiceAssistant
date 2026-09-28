@@ -157,9 +157,9 @@ export default function BillingPage() {
 
       {isPro && status.configured && (
         <section className="rounded-[24px] border bg-card p-5 shadow-sm sm:p-6">
-          <h2 className="text-lg font-black">Usage top-ups</h2>
+          <h2 className="text-lg font-black">AI top-up</h2>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Optional extras for heavy months. Top-ups only work while Pro is active. Unused balance freezes if Pro ends and returns when you resubscribe.
+            An optional extra for heavy months. One $5 top-up adds more AI drafting and voice time together. Top-ups only work while Pro is active. Unused balance freezes if Pro ends and returns when you resubscribe.
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <Button
@@ -167,19 +167,10 @@ export default function BillingPage() {
               variant="outline"
               disabled={isBusy}
               className="min-h-11 rounded-xl"
-              onClick={() => packCheckout.mutate("ai_tokens")}
+              onClick={() => packCheckout.mutate("ai_topup")}
             >
               {packCheckout.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Buy AI top-up
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isBusy}
-              className="min-h-11 rounded-xl"
-              onClick={() => packCheckout.mutate("voice_seconds")}
-            >
-              Buy voice top-up
+              Buy AI top-up — $5
             </Button>
           </div>
         </section>

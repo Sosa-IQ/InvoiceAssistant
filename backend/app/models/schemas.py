@@ -483,14 +483,13 @@ class UsageStatusRead(BaseModel):
     voice_usage_ratio: float
     packs_frozen: bool
     ai_pack_configured: bool
-    voice_pack_configured: bool
     # None means unlimited (Pro, or billing enforcement off).
     email_monthly_limit: int | None = None
     emails_sent_this_period: int = 0
 
 
 class PackCheckoutRequest(BaseModel):
-    pack: Literal["ai_tokens", "voice_seconds"]
+    pack: Literal["ai_topup"]
 
 
 class CheckoutSessionRequest(BaseModel):
