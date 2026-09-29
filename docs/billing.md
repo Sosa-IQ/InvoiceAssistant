@@ -37,7 +37,7 @@ cd backend
 .venv/bin/alembic current
 ```
 
-The expected head is `0011_usage_metering`. This includes `subscriptions`, the private `stripe_webhook_events` ledger, `usage_events`, and `usage_pack_credits`.
+The expected head is `0013_combined_ai_topup`. This includes `subscriptions`, the private `stripe_webhook_events` ledger, `usage_events`, and `usage_pack_credits`.
 
 ## 2. Create a test product and recurring prices
 
@@ -126,12 +126,9 @@ Put that endpoint's production `whsec_...` value in the production backend secre
 
 ## Usage packs (optional)
 
-Create two one-time (non-recurring) Prices in Stripe test mode, e.g.:
+Create one one-time (non-recurring) $5 Price in Stripe test mode for the **AI top-up** and set `STRIPE_AI_PACK_PRICE_ID`. Each purchase credits both `AI_PACK_TOKENS` (default 1_000_000) and `VOICE_PACK_SECONDS` (default 3600).
 
-- AI top-up → set `STRIPE_AI_PACK_PRICE_ID` (credits `AI_PACK_TOKENS`, default 1_000_000)
-- Voice top-up → set `STRIPE_VOICE_PACK_PRICE_ID` (credits `VOICE_PACK_SECONDS`, default 3600)
-
-Pack Checkout is Pro-only. Webhook `checkout.session.completed` with `mode=payment` and metadata `pack_kind` credits the tenant. Losing Pro freezes pack spend; balances are preserved for resubscribe.
+Pack Checkout is Pro-only. Webhook `checkout.session.completed` with `mode=payment` and metadata `pack_kind=ai_topup` credits the tenant. Balances from the retired `ai_tokens` / `voice_seconds` packs are not spent. Losing Pro freezes pack spend; balances are preserved for resubscribe.
 
 ## Safe rollback
 

@@ -161,7 +161,6 @@ SUPABASE_SERVICE_ROLE_KEY=...
 SUPABASE_STORAGE_BUCKET=invoices
 
 OPENAI_API_KEY=sk-...
-SPEECHMATICS_API_KEY=   # if used
 
 SMTP_HOST=email-smtp.us-east-1.amazonaws.com
 SMTP_PORT=587
@@ -178,7 +177,6 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_PRO_PRICE_ID=price_...
 STRIPE_PRO_YEARLY_PRICE_ID=price_...
 STRIPE_AI_PACK_PRICE_ID=price_...
-STRIPE_VOICE_PACK_PRICE_ID=price_...
 STRIPE_EXPECTED_LIVEMODE=false
 BILLING_ENFORCEMENT_ENABLED=true
 
@@ -211,7 +209,7 @@ docker run --rm --env-file .env cuenvia-api \
   alembic upgrade head
 docker run --rm --env-file .env cuenvia-api \
   alembic current
-# expect: 0012_invoice_status_lifecycle (or newer head)
+# expect: 0013_combined_ai_topup (or newer head)
 ```
 
 ---

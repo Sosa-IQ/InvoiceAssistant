@@ -10,6 +10,7 @@ from calendar import monthrange
 from fastapi import HTTPException
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from app.config import settings
 from app.models.db_models import InvoiceEmail, Subscription, UsageEvent, UsagePackCredit
@@ -20,8 +21,8 @@ logger = logging.getLogger(__name__)
 _ACTIVE = frozenset({"active", "trialing"})
 FEATURE_AI = "ai_text"
 FEATURE_VOICE = "voice"
-PACK_AI = "ai_tokens"
-PACK_VOICE = "voice_seconds"
+# The only pack sold: one purchase credits both AI tokens and voice seconds.
+PACK_AI_TOPUP = "ai_topup"
 
 
 @dataclass(frozen=True)
@@ -71,14 +72,14 @@ def _ratio(used: int, included: int) -> float:
 
 
 def estimate_ai_cost_micros(tokens_in: int, tokens_out: int) -> int:
-    """Rough gpt-4o-mini estimate in microdollars (1e-6 USD)."""
-    # $0.15 / 1M in, $0.60 / 1M out → micros per token
-    return int(tokens_in * 0.15 + tokens_out * 0.60)
+    """Rough gpt-6-luna estimate in microdollars (1e-6 USD)."""
+    # $0.10 / 1M in, $0.50 / 1M out → micros per token
+    return int(tokens_in * 0.10 + tokens_out * 0.50)
 
 
 def estimate_voice_cost_micros(audio_seconds: int) -> int:
-    """Conservative Speechmatics-class estimate (~$0.30 / audio hour)."""
-    return int(audio_seconds * (0.30 * 1_000_000 / 3600))
+    """OpenAI gpt-transcribe estimate ($0.0045 / audio minute = $0.27 / hour)."""
+    return int(audio_seconds * (0.27 * 1_000_000 / 3600))
 
 
 async def _sum_period(
@@ -106,15 +107,12 @@ async def _sum_period(
     return int(row[0] or 0), int(row[1] or 0)
 
 
-async def _pack_remaining(db: AsyncSession, *, user_id: str, pack_kind: str) -> int:
-    if pack_kind == PACK_AI:
-        col = UsagePackCredit.tokens_remaining
-    else:
-        col = UsagePackCredit.voice_seconds_remaining
+async def _pack_remaining(db: AsyncSession, *, user_id: str, column: InstrumentedAttribute[int]) -> int:
+    """Sum one balance column across the user's AI top-ups (each holds both balances)."""
     total = await db.scalar(
-        select(func.coalesce(func.sum(col), 0)).where(
+        select(func.coalesce(func.sum(column), 0)).where(
             UsagePackCredit.user_id == user_id,
-            UsagePackCredit.pack_kind == pack_kind,
+            UsagePackCredit.pack_kind == PACK_AI_TOPUP,
         )
     )
     return int(total or 0)
@@ -150,8 +148,8 @@ async def get_usage_snapshot(db: AsyncSession, user_id: str) -> UsageSnapshot:
     _, voice_used = await _sum_period(
         db, user_id=user_id, feature=FEATURE_VOICE, period_start=period_start, period_end=period_end
     )
-    pack_ai = await _pack_remaining(db, user_id=user_id, pack_kind=PACK_AI)
-    pack_voice = await _pack_remaining(db, user_id=user_id, pack_kind=PACK_VOICE)
+    pack_ai = await _pack_remaining(db, user_id=user_id, column=UsagePackCredit.tokens_remaining)
+    pack_voice = await _pack_remaining(db, user_id=user_id, column=UsagePackCredit.voice_seconds_remaining)
     included_ai = settings.ai_monthly_token_limit if entitled else 0
     included_voice = settings.voice_monthly_seconds if entitled else 0
     # Packs only spendable while Pro; balance is still reported (frozen).
@@ -181,9 +179,10 @@ async def _debit_packs(
     db: AsyncSession,
     *,
     user_id: str,
-    pack_kind: str,
+    column: InstrumentedAttribute[int],
     amount: int,
 ) -> None:
+    """Spend oldest-first from AI top-ups that still hold this balance."""
     if amount <= 0:
         return
     remaining_need = amount
@@ -192,7 +191,8 @@ async def _debit_packs(
             select(UsagePackCredit)
             .where(
                 UsagePackCredit.user_id == user_id,
-                UsagePackCredit.pack_kind == pack_kind,
+                UsagePackCredit.pack_kind == PACK_AI_TOPUP,
+                column > 0,
             )
             .order_by(UsagePackCredit.created_at.asc())
             .with_for_update()
@@ -201,14 +201,9 @@ async def _debit_packs(
     for row in rows:
         if remaining_need <= 0:
             break
-        if pack_kind == PACK_AI:
-            available = int(row.tokens_remaining)
-            take = min(available, remaining_need)
-            row.tokens_remaining = available - take
-        else:
-            available = int(row.voice_seconds_remaining)
-            take = min(available, remaining_need)
-            row.voice_seconds_remaining = available - take
+        available = int(getattr(row, column.key))
+        take = min(available, remaining_need)
+        setattr(row, column.key, available - take)
         remaining_need -= take
         row.updated_at = datetime.now(UTC)
     if remaining_need > 0:
@@ -291,7 +286,7 @@ async def consume_ai_tokens(
         included_remaining = max(0, snap.ai_tokens_included - snap.ai_tokens_used)
         pack_portion = max(0, total - included_remaining)
         if pack_portion:
-            await _debit_packs(db, user_id=user_id, pack_kind=PACK_AI, amount=pack_portion)
+            await _debit_packs(db, user_id=user_id, column=UsagePackCredit.tokens_remaining, amount=pack_portion)
     db.add(
         UsageEvent(
             user_id=user_id,
@@ -326,7 +321,9 @@ async def consume_voice_seconds(
         included_remaining = max(0, snap.voice_seconds_included - snap.voice_seconds_used)
         pack_portion = max(0, seconds - included_remaining)
         if pack_portion:
-            await _debit_packs(db, user_id=user_id, pack_kind=PACK_VOICE, amount=pack_portion)
+            await _debit_packs(
+                db, user_id=user_id, column=UsagePackCredit.voice_seconds_remaining, amount=pack_portion
+            )
     db.add(
         UsageEvent(
             user_id=user_id,
@@ -357,21 +354,15 @@ async def credit_pack_from_checkout(
     )
     if existing is not None:
         return
-    if pack_kind == PACK_AI:
-        tokens = settings.ai_pack_tokens
-        voice = 0
-    elif pack_kind == PACK_VOICE:
-        tokens = 0
-        voice = settings.voice_pack_seconds
-    else:
+    if pack_kind != PACK_AI_TOPUP:
         logger.warning("usage_pack_unknown_kind", extra={"pack_kind": pack_kind})
         return
     db.add(
         UsagePackCredit(
             user_id=user_id,
             pack_kind=pack_kind,
-            tokens_remaining=tokens,
-            voice_seconds_remaining=voice,
+            tokens_remaining=settings.ai_pack_tokens,
+            voice_seconds_remaining=settings.voice_pack_seconds,
             stripe_checkout_session_id=checkout_session_id,
             stripe_payment_intent_id=payment_intent_id,
         )

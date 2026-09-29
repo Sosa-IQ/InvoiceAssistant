@@ -25,7 +25,7 @@ Rotation procedure:
 6. Revoke the old credential only after the canary succeeds.
 7. Record operator/date/result outside application logs without recording the secret.
 
-Rotate Supabase service-role, OpenAI, Speechmatics, JWT, SMTP, and database credentials immediately after suspected disclosure. Take a protected backup first when database credential rotation could affect access.
+Rotate Supabase service-role, OpenAI, JWT, SMTP, and database credentials immediately after suspected disclosure. Take a protected backup first when database credential rotation could affect access.
 
 ## Incident response
 

@@ -44,14 +44,13 @@ export type UsageStatus = {
   voice_usage_ratio: number
   packs_frozen: boolean
   ai_pack_configured: boolean
-  voice_pack_configured: boolean
   /** Monthly invoice emails allowed on Free; null means unlimited. */
   email_monthly_limit: number | null
   emails_sent_this_period: number
 }
 
 export type BillingSession = { url: string }
-export type PackKind = "ai_tokens" | "voice_seconds"
+export type PackKind = "ai_topup"
 
 export async function getBillingPlans(): Promise<BillingPlansResponse> {
   const { data } = await api.get<BillingPlansResponse>("/api/billing/plans")

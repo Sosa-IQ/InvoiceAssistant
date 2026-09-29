@@ -15,7 +15,6 @@ class Settings(BaseSettings):
     )
 
     openai_api_key: str = ""
-    speechmatics_api_key: str = ""
     data_dir: Path = Path("./data")
     database_url: str
     max_upload_size_mb: int = 20
@@ -53,9 +52,9 @@ class Settings(BaseSettings):
     ai_max_prompt_chars: int = 8000
     # Global provider spend circuit breaker across all tenants (cents / 24h).
     global_daily_ai_budget_cents: int = 5000
-    # One-time Pro-only top-up packs (optional until Stripe pack prices exist).
+    # One-time Pro-only AI top-up (optional until the Stripe price exists).
+    # Each purchase credits both AI tokens and voice seconds.
     stripe_ai_pack_price_id: str = ""
-    stripe_voice_pack_price_id: str = ""
     ai_pack_tokens: int = 1_000_000
     voice_pack_seconds: int = 3600
     stripe_secret_key: str = ""
@@ -202,10 +201,6 @@ class Settings(BaseSettings):
     @property
     def ai_pack_configured(self) -> bool:
         return self.stripe_configured and bool(self.stripe_ai_pack_price_id)
-
-    @property
-    def voice_pack_configured(self) -> bool:
-        return self.stripe_configured and bool(self.stripe_voice_pack_price_id)
 
     @property
     def max_upload_bytes(self) -> int:

@@ -344,7 +344,7 @@ async def generate_invoice(
     Generate a new invoice draft from a plain-text prompt.
 
     Uses RAG to pull relevant context from previously uploaded invoices,
-    then calls OpenAI gpt-4o-mini to produce a structured invoice JSON.
+    then calls OpenAI (gpt-6-luna) to produce a structured invoice JSON.
     """
     prompt = body.prompt.strip()
     if len(prompt) > settings.ai_max_prompt_chars:

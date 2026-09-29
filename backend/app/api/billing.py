@@ -26,8 +26,7 @@ from app.models.schemas import (
 from app.services.stripe_service import stripe_service
 from app.services.usage_service import (
     free_email_allowance,
-    PACK_AI,
-    PACK_VOICE,
+    PACK_AI_TOPUP,
     credit_pack_from_checkout,
     get_usage_snapshot,
     is_pro_entitled,
@@ -346,7 +345,6 @@ async def get_usage_status(
         voice_usage_ratio=snap.voice_usage_ratio,
         packs_frozen=snap.packs_frozen,
         ai_pack_configured=settings.ai_pack_configured,
-        voice_pack_configured=settings.voice_pack_configured,
         email_monthly_limit=email_limit,
         emails_sent_this_period=emails_used,
     )
@@ -363,16 +361,11 @@ async def create_pack_checkout_session(
     row = await _get_or_create_subscription(db, current_user.id)
     if not is_pro_entitled(row):
         raise HTTPException(402, "Usage top-ups are available only with an active Pro plan.")
-    if body.pack == PACK_AI:
-        if not settings.ai_pack_configured:
-            raise HTTPException(503, "AI top-up packs are not configured yet.")
-        price_id = settings.stripe_ai_pack_price_id
-    elif body.pack == PACK_VOICE:
-        if not settings.voice_pack_configured:
-            raise HTTPException(503, "Voice top-up packs are not configured yet.")
-        price_id = settings.stripe_voice_pack_price_id
-    else:
+    if body.pack != PACK_AI_TOPUP:
         raise HTTPException(422, "Unknown pack type.")
+    if not settings.ai_pack_configured:
+        raise HTTPException(503, "AI top-ups are not configured yet.")
+    price_id = settings.stripe_ai_pack_price_id
 
     if not row.stripe_customer_id:
         row.stripe_customer_id = await stripe_svc.create_customer(
@@ -1021,7 +1014,7 @@ async def _apply_pack_checkout_completed(db: AsyncSession, session: dict) -> Non
     if not user_id or not pack_kind or not session_id:
         logger.warning("stripe_pack_checkout_missing_fields")
         return
-    if pack_kind not in {PACK_AI, PACK_VOICE}:
+    if pack_kind != PACK_AI_TOPUP:
         logger.warning("stripe_pack_checkout_unknown_kind", extra={"pack_kind": pack_kind})
         return
     row = await _get_subscription(db, str(user_id))

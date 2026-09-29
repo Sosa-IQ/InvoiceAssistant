@@ -9,8 +9,11 @@ const PROCESSORS = [
   { name: "Vercel", purpose: "Hosting for the website and app" },
   { name: "Cloudflare", purpose: "DNS, network protection, and bot checks on sign-up and log-in (Turnstile)" },
   { name: "Stripe", purpose: "Subscription and top-up payments. Card details go to Stripe; we never see or store them." },
-  { name: "OpenAI", purpose: "AI invoice drafting, edits, and smart suggestions, only when you use those features" },
-  { name: "Speechmatics", purpose: "Transcribing voice recordings, only when you use voice input" },
+  {
+    name: "OpenAI",
+    purpose:
+      "AI invoice drafting, edits, smart suggestions, voice transcription, and translating non-English input into English, only when you use those features",
+  },
 ]
 
 const linkClass = "font-bold text-foreground underline-offset-4 hover:underline"
@@ -21,7 +24,7 @@ export default function PrivacyPage() {
       <article className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
         <p className="text-sm font-black uppercase tracking-[0.14em] text-primary">Legal</p>
         <h1 className="mt-3 text-4xl font-black tracking-tight">Privacy policy</h1>
-        <p className="mt-3 text-sm text-muted-foreground">Last updated September 26, 2026</p>
+        <p className="mt-3 text-sm text-muted-foreground">Last updated September 27, 2026</p>
         <div className="mt-8 space-y-5 text-sm leading-7 text-muted-foreground">
           <p>
             {APP_NAME} is built for small businesses that expect their client and invoice data to stay private. This
@@ -58,10 +61,10 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-black text-foreground">AI and voice features</h2>
           <p>
             When you use AI drafting, AI edits, or smart suggestions, the relevant invoice text is sent to OpenAI to
-            produce the result. When you use voice input, your recording is sent to Speechmatics for transcription. We
-            do not keep the audio. These providers process the data to return results to us under their API terms. OpenAI
-            does not use API data to train its models by default. If you do not use these features, your content is not
-            sent to them.
+            produce the result. When you use voice input, your recording is sent to OpenAI for transcription, and the
+            transcript is then used to draft the invoice in English. We do not keep the audio. OpenAI processes the data
+            to return results to us under its API terms and does not use API data to train its models by default. If you
+            do not use these features, your content is not sent to OpenAI.
           </p>
 
           <h2 className="text-lg font-black text-foreground">Service providers</h2>

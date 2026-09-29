@@ -128,7 +128,6 @@ def stripe_config(monkeypatch: pytest.MonkeyPatch):
         "stripe_pro_price_id": "price_test_pro",
         "stripe_pro_yearly_price_id": "",
         "stripe_ai_pack_price_id": "",
-        "stripe_voice_pack_price_id": "",
         "stripe_pro_price_cents": 1200,
         "stripe_currency": "USD",
         "stripe_expected_livemode": False,

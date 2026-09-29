@@ -259,7 +259,7 @@ class UsagePackCredit(Base):
     __tablename__ = "usage_pack_credits"
     __table_args__ = (
         CheckConstraint(
-            "pack_kind IN ('ai_tokens', 'voice_seconds')",
+            "pack_kind IN ('ai_topup', 'ai_tokens', 'voice_seconds')",
             name="ck_usage_pack_credits_kind",
         ),
         UniqueConstraint(

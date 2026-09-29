@@ -51,7 +51,6 @@ const freeUsage = {
   voice_usage_ratio: 0,
   packs_frozen: false,
   ai_pack_configured: false,
-  voice_pack_configured: false,
   email_monthly_limit: 5,
   emails_sent_this_period: 0,
 } as const
@@ -90,6 +89,16 @@ describe("BillingPage", () => {
     await user.click(screen.getByRole("button", { name: /manage subscription/i }))
     expect(createPortalSession).toHaveBeenCalledTimes(1)
     expect(redirectToStripe).toHaveBeenCalledWith("https://billing.stripe.com/test")
+  })
+
+  it("offers one combined AI top-up to Pro users", async () => {
+    vi.mocked(getBillingStatus).mockResolvedValue({ ...freeStatus, plan: "pro", status: "active" })
+    const user = userEvent.setup()
+    renderWithProviders(<BillingPage />)
+    await user.click(await screen.findByRole("button", { name: /buy ai top-up/i }))
+    expect(createPackCheckoutSession).toHaveBeenCalledWith("ai_topup")
+    expect(redirectToStripe).toHaveBeenCalledWith("https://checkout.stripe.com/pack")
+    expect(screen.queryByRole("button", { name: /voice top-up/i })).not.toBeInTheDocument()
   })
 
   it("fails closed with Retry when status cannot load", async () => {

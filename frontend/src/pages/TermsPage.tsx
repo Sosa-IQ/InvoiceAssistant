@@ -10,7 +10,7 @@ export default function TermsPage() {
       <article className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
         <p className="text-sm font-black uppercase tracking-[0.14em] text-primary">Legal</p>
         <h1 className="mt-3 text-4xl font-black tracking-tight">Terms of use</h1>
-        <p className="mt-3 text-sm text-muted-foreground">Last updated September 26, 2026</p>
+        <p className="mt-3 text-sm text-muted-foreground">Last updated September 27, 2026</p>
         <div className="mt-8 space-y-5 text-sm leading-7 text-muted-foreground">
           <p>
             Welcome to {APP_NAME}. By creating an account or using the service, you agree to these terms and to our{" "}
@@ -65,8 +65,9 @@ export default function TermsPage() {
               believe you were charged in error, contact us.
             </li>
             <li>
-              Top-up packs are one-time purchases for extra AI or voice usage. Unused pack balance carries over while
-              you have Pro. It is paused if Pro ends and resumes if you subscribe again. Packs have no cash value.
+              AI top-ups are one-time purchases that add extra AI and voice usage together. Unused top-up balance
+              carries over while you have Pro. It is paused if Pro ends and resumes if you subscribe again. Top-ups
+              have no cash value.
             </li>
             <li>
               If we change Pro pricing, we will give you notice before the change applies to your next renewal.
