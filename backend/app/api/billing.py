@@ -148,6 +148,14 @@ def _is_missing_stripe_customer_error(exc: BaseException) -> bool:
     return "No such customer" in message
 
 
+def _is_promotion_rejected_error(exc: BaseException) -> bool:
+    """True when Stripe rejects the Checkout discount (expired coupon, inactive or used-up code)."""
+    if not isinstance(exc, stripe.InvalidRequestError):
+        return False
+    param = getattr(exc, "param", None) or ""
+    return param.startswith("discounts")
+
+
 def _is_terminal_status(status: str) -> bool:
     return status in _TERMINAL_SUBSCRIPTION_STATUSES
 
@@ -575,30 +583,49 @@ async def create_checkout_session(
         logger.exception("stripe_customer_persist_failed", extra={"exception_type": type(exc).__name__})
         raise HTTPException(502, "Billing provider is unavailable. Please try again.") from exc
 
+    # The launch discount is applied automatically to monthly Pro only. There are no
+    # public codes, so Checkout shows no code box (which also keeps the launch code
+    # from being typed into a yearly purchase).
+    launch_promotion_code = (
+        settings.stripe_launch_promotion_code.strip() or None if interval == "month" else None
+    )
     try:
         expires_at = int(
             (row.checkout_idempotency_created_at + timedelta(seconds=_CHECKOUT_KEY_TTL_SECONDS)).timestamp()
         )
-        session = await stripe_svc.create_checkout_session(
-            customer_id=row.stripe_customer_id,
-            user_id=current_user.id,
-            price_id=price_id,
-            success_url=f"{settings.frontend_url}/billing?checkout=success",
-            cancel_url=f"{settings.frontend_url}/pricing?checkout=cancelled",
-            # Include interval so monthly/yearly retries never collide.
-            idempotency_key=f"checkout:{interval}:{checkout_key}",
-            expires_at=expires_at,
-            metadata={"user_id": current_user.id, "interval": interval},
-            # The launch discount is applied automatically to monthly Pro only. There are no
-            # public codes, so Checkout shows no code box (which also keeps the launch code
-            # from being typed into a yearly purchase).
-            promotion_code=(
-                settings.stripe_launch_promotion_code.strip() or None
-                if interval == "month"
-                else None
-            ),
-            allow_promotion_codes=False,
-        )
+        checkout_args = {
+            "customer_id": row.stripe_customer_id,
+            "user_id": current_user.id,
+            "price_id": price_id,
+            "success_url": f"{settings.frontend_url}/billing?checkout=success",
+            "cancel_url": f"{settings.frontend_url}/pricing?checkout=cancelled",
+            "expires_at": expires_at,
+            "metadata": {"user_id": current_user.id, "interval": interval},
+            "allow_promotion_codes": False,
+        }
+        # Include interval so monthly/yearly retries never collide.
+        idempotency_key = f"checkout:{interval}:{checkout_key}"
+        try:
+            session = await stripe_svc.create_checkout_session(
+                **checkout_args,
+                idempotency_key=idempotency_key,
+                promotion_code=launch_promotion_code,
+            )
+        except Exception as exc:
+            if not (launch_promotion_code and _is_promotion_rejected_error(exc)):
+                raise
+            # An expired or deactivated promo must never block upgrades: sell at full
+            # price and alert so the promotion can be fixed in Stripe. The distinct key
+            # keeps the retry from colliding with the rejected request's parameters.
+            logger.error(
+                "stripe_launch_promotion_rejected",
+                extra={"stripe_code": getattr(exc, "code", None)},
+            )
+            session = await stripe_svc.create_checkout_session(
+                **checkout_args,
+                idempotency_key=f"{idempotency_key}:full-price",
+                promotion_code=None,
+            )
     except Exception as exc:
         logger.exception("stripe_checkout_session_failed", extra={"exception_type": type(exc).__name__})
         raise HTTPException(502, "Billing provider is unavailable. Please try again.") from exc
