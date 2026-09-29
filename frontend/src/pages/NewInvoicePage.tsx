@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import { FilePenLine, Loader2, Sparkles } from "lucide-react"
 import { toast } from "sonner"
@@ -6,16 +7,20 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { ProLockedPanel } from "@/components/ProLockedPanel"
+import { UsageLimitPanel } from "@/components/UsageLimitPanel"
 import { createInvoiceDraft, generateInvoice } from "@/api/invoices"
 import { VoiceRecorder } from "@/components/VoiceRecorder"
 import { useProAccess } from "@/hooks/useProAccess"
+import { USAGE_QUERY_KEY, useAiAllowance } from "@/hooks/useAiAllowance"
 
 const MAX_CHARS = 8000
 const DRAFT_KEY = "invoice_draft"
 
 export default function NewInvoicePage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { isPro, isLoading: proLoading } = useProAccess()
+  const { aiExhausted, voiceExhausted, canBuyTopUp, periodEnd } = useAiAllowance()
   const [prompt, setPrompt] = useState("")
   const [loading, setLoading] = useState(false)
   const [manualLoading, setManualLoading] = useState(false)
@@ -37,6 +42,7 @@ export default function NewInvoicePage() {
       toast.error(msg)
     } finally {
       setLoading(false)
+      void queryClient.invalidateQueries({ queryKey: USAGE_QUERY_KEY })
     }
   }
 
@@ -59,21 +65,29 @@ export default function NewInvoicePage() {
       <div>
         <h1 className="text-3xl font-black tracking-tight">New invoice</h1>
         <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-          {isPro
+          {isPro && aiExhausted
+            ? "You can still create a blank invoice manually while AI is paused."
+            : isPro
             ? "Tell us what you are billing for. Type it, say it aloud, or start with a blank invoice."
             : "Create a blank invoice manually on Free. AI drafting and voice are included with Pro."}
         </p>
       </div>
 
-      {!proLoading && isPro ? (
+      {!proLoading && isPro && aiExhausted ? (
+        <UsageLimitPanel kind="ai" periodEnd={periodEnd} canBuyTopUp={canBuyTopUp} />
+      ) : !proLoading && isPro ? (
         <>
-          <div className="rounded-[24px] border bg-card p-6 shadow-sm sm:p-8">
-            <VoiceRecorder
-              disabled={loading || manualLoading}
-              onBusyChange={setVoiceBusy}
-              onTranscript={(transcript) => setPrompt((prev) => (prev ? `${prev}\n${transcript}` : transcript))}
-            />
-          </div>
+          {voiceExhausted ? (
+            <UsageLimitPanel kind="voice" periodEnd={periodEnd} canBuyTopUp={canBuyTopUp} />
+          ) : (
+            <div className="rounded-[24px] border bg-card p-6 shadow-sm sm:p-8">
+              <VoiceRecorder
+                disabled={loading || manualLoading}
+                onBusyChange={setVoiceBusy}
+                onTranscript={(transcript) => setPrompt((prev) => (prev ? `${prev}\n${transcript}` : transcript))}
+              />
+            </div>
+          )}
 
           {/* Prompt textarea */}
           <div className="space-y-2 rounded-[24px] border bg-card p-4 shadow-sm sm:p-6">
@@ -126,7 +140,7 @@ export default function NewInvoicePage() {
         disabled={loading || manualLoading || voiceBusy}
         className="min-h-12 w-full rounded-xl"
         size="lg"
-        variant={isPro ? "outline" : "default"}
+        variant={isPro && !aiExhausted ? "outline" : "default"}
       >
         {manualLoading ? (
           <>

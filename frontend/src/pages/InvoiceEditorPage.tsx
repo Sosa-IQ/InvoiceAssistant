@@ -25,8 +25,10 @@ import { VoiceRecorder } from "@/components/VoiceRecorder"
 import { createClient, createClientAddress, listClients } from "@/api/clients"
 import { EmailInvoiceDialog } from "@/components/EmailInvoiceDialog"
 import { ProLockedPanel } from "@/components/ProLockedPanel"
+import { UsageLimitPanel } from "@/components/UsageLimitPanel"
 import { ProUpgradeDialog } from "@/components/ProUpgradeDialog"
 import { useProAccess } from "@/hooks/useProAccess"
+import { USAGE_QUERY_KEY, useAiAllowance } from "@/hooks/useAiAllowance"
 import { freeEmailSummary, useEmailAllowance } from "@/hooks/useEmailAllowance"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -142,6 +144,7 @@ export default function InvoiceEditorPage() {
   const [emailDialogRecord, setEmailDialogRecord] = useState<InvoiceRecord | null>(null)
   const [proUpgradeOpen, setProUpgradeOpen] = useState(false)
   const { isPro } = useProAccess()
+  const { aiExhausted, voiceExhausted, canBuyTopUp, periodEnd } = useAiAllowance()
   const emailAllowance = useEmailAllowance()
   const emailSummary = freeEmailSummary(emailAllowance.limit, emailAllowance.remaining)
   const [aiInstruction, setAiInstruction] = useState("")
@@ -354,6 +357,7 @@ export default function InvoiceEditorPage() {
       toast.error("AI could not update this draft. Try a clearer instruction or edit manually.")
     } finally {
       setAiRevising(false)
+      void queryClient.invalidateQueries({ queryKey: USAGE_QUERY_KEY })
     }
   }
 
@@ -431,7 +435,9 @@ export default function InvoiceEditorPage() {
 
       <form className="space-y-6" onSubmit={handleSubmit(onSave, onInvalid)}>
 
-        {isPro ? (
+        {isPro && aiExhausted ? (
+          <UsageLimitPanel kind="ai" periodEnd={periodEnd} canBuyTopUp={canBuyTopUp} />
+        ) : isPro ? (
         <section className="rounded-[24px] border border-border bg-card p-4 shadow-sm sm:p-5">
           <Label htmlFor="ai-revise" className="text-foreground">
             Update with AI
@@ -440,11 +446,15 @@ export default function InvoiceEditorPage() {
             Keep this draft and describe changes by typing or voice. Uses your AI and voice allowances.
           </p>
           <div className="mt-4">
-            <VoiceRecorder
-              disabled={aiRevising}
-              onBusyChange={setAiVoiceBusy}
-              onTranscript={(transcript) => setAiInstruction((prev) => (prev ? `${prev}\n${transcript}` : transcript))}
-            />
+            {voiceExhausted ? (
+              <UsageLimitPanel kind="voice" periodEnd={periodEnd} canBuyTopUp={canBuyTopUp} />
+            ) : (
+              <VoiceRecorder
+                disabled={aiRevising}
+                onBusyChange={setAiVoiceBusy}
+                onTranscript={(transcript) => setAiInstruction((prev) => (prev ? `${prev}\n${transcript}` : transcript))}
+              />
+            )}
           </div>
           <Textarea
             id="ai-revise"

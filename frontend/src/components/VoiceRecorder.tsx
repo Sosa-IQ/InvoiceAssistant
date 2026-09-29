@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Loader2, Mic } from "lucide-react"
 import { toast } from "sonner"
 import { transcribeAudio } from "@/api/voice"
+import { USAGE_QUERY_KEY } from "@/hooks/useAiAllowance"
 
 const BTN_SIZE = 112 // px — matches w-28 h-28
 
@@ -18,6 +20,7 @@ type VoiceRecorderProps = {
  * recording, then sends the clip for transcription.
  */
 export function VoiceRecorder({ onTranscript, onBusyChange, disabled = false }: VoiceRecorderProps) {
+  const queryClient = useQueryClient()
   const [recording, setRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -123,6 +126,8 @@ export function VoiceRecorder({ onTranscript, onBusyChange, disabled = false }: 
           toast.error("Transcription failed")
         } finally {
           setTranscribing(false)
+          // Refresh usage so the paused-voice panel appears once the allowance runs out.
+          void queryClient.invalidateQueries({ queryKey: USAGE_QUERY_KEY })
         }
       }
       recorder.start()
