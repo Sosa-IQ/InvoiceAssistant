@@ -4,6 +4,14 @@ import { useNavigate } from "react-router-dom"
 import { FilePenLine, Loader2, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { ProLockedPanel } from "@/components/ProLockedPanel"
@@ -27,6 +35,9 @@ export default function NewInvoicePage() {
   const [manualLoading, setManualLoading] = useState(false)
   // True while the voice recorder is recording or transcribing.
   const [voiceBusy, setVoiceBusy] = useState(false)
+  const [confirmManualOpen, setConfirmManualOpen] = useState(false)
+  // Starting manually discards the AI description, so confirm when there is one to lose.
+  const hasUnusedDescription = isPro && !aiExhausted && prompt.trim().length > 0
 
   // ── Generate ─────────────────────────────────────────────────────────────
   async function handleGenerate() {
@@ -136,7 +147,7 @@ export default function NewInvoicePage() {
       )}
 
       <Button
-        onClick={handleCreateManually}
+        onClick={() => (hasUnusedDescription ? setConfirmManualOpen(true) : void handleCreateManually())}
         disabled={loading || manualLoading || voiceBusy}
         className="min-h-12 w-full rounded-xl"
         size="lg"
@@ -154,6 +165,33 @@ export default function NewInvoicePage() {
           </>
         )}
       </Button>
+
+      <Dialog open={confirmManualOpen} onOpenChange={setConfirmManualOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Start a blank invoice instead?</DialogTitle>
+            <DialogDescription className="text-left leading-6">
+              Your description won’t be used to generate an invoice, and it will be cleared. To keep it, go back and
+              choose Generate Invoice.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmManualOpen(false)}>
+              Go back
+            </Button>
+            <Button
+              type="button"
+              disabled={manualLoading}
+              onClick={() => {
+                setConfirmManualOpen(false)
+                void handleCreateManually()
+              }}
+            >
+              Create manually
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

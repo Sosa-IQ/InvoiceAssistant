@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { screen } from "@testing-library/react"
+import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { renderWithProviders } from "@/test/utils"
 
@@ -11,10 +11,15 @@ vi.mock("@/api/billing", () => ({
 }))
 vi.mock("@/api/invoices", () => ({ createInvoiceDraft: vi.fn(), generateInvoice: vi.fn() }))
 vi.mock("@/api/voice", () => ({ transcribeAudio: vi.fn() }))
+vi.mock("react-router-dom", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-router-dom")>()),
+  useNavigate: () => vi.fn(),
+}))
 vi.mock("@/lib/externalNavigation", () => ({ redirectToStripe: vi.fn() }))
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
 import { createPackCheckoutSession, getBillingStatus, getUsageStatus } from "@/api/billing"
+import { createInvoiceDraft } from "@/api/invoices"
 import { redirectToStripe } from "@/lib/externalNavigation"
 import NewInvoicePage from "./NewInvoicePage"
 
@@ -88,5 +93,40 @@ describe("NewInvoicePage usage limits", () => {
 
     expect(await screen.findByRole("button", { name: /generate invoice/i })).toBeInTheDocument()
     expect(screen.queryByText(/usage limit reached/i)).not.toBeInTheDocument()
+  })
+})
+
+describe("NewInvoicePage manual create", () => {
+  beforeEach(() => {
+    vi.mocked(createInvoiceDraft).mockResolvedValue({} as Awaited<ReturnType<typeof createInvoiceDraft>>)
+  })
+
+  it("asks before discarding a typed description", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<NewInvoicePage />)
+    await user.type(await screen.findByLabelText(/invoice description/i), "3 hours of consulting")
+
+    await user.click(screen.getByRole("button", { name: /create manually/i }))
+    expect(screen.getByRole("dialog", { name: /start a blank invoice instead/i })).toBeInTheDocument()
+    expect(createInvoiceDraft).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole("button", { name: /go back/i }))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/invoice description/i)).toHaveValue("3 hours of consulting")
+    expect(createInvoiceDraft).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole("button", { name: /create manually/i }))
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /create manually/i }))
+    expect(createInvoiceDraft).toHaveBeenCalledTimes(1)
+  })
+
+  it("creates right away when the description is empty", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<NewInvoicePage />)
+    await screen.findByLabelText(/invoice description/i)
+
+    await user.click(screen.getByRole("button", { name: /create manually/i }))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(createInvoiceDraft).toHaveBeenCalledTimes(1)
   })
 })
