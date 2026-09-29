@@ -12,6 +12,7 @@ import { createInvoiceDraft, generateInvoice } from "@/api/invoices"
 import { VoiceRecorder } from "@/components/VoiceRecorder"
 import { useProAccess } from "@/hooks/useProAccess"
 import { USAGE_QUERY_KEY, useAiAllowance } from "@/hooks/useAiAllowance"
+import { showAiError } from "@/lib/aiErrors"
 
 const MAX_CHARS = 8000
 const DRAFT_KEY = "invoice_draft"
@@ -38,8 +39,7 @@ export default function NewInvoicePage() {
       )
       navigate("/invoices/editor", { state: { invoice: result.invoice } })
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Generation failed."
-      toast.error(msg)
+      showAiError(err, "ai", "The invoice could not be generated. Try describing the work differently.")
     } finally {
       setLoading(false)
       void queryClient.invalidateQueries({ queryKey: USAGE_QUERY_KEY })

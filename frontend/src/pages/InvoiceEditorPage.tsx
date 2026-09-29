@@ -29,6 +29,7 @@ import { UsageLimitPanel } from "@/components/UsageLimitPanel"
 import { ProUpgradeDialog } from "@/components/ProUpgradeDialog"
 import { useProAccess } from "@/hooks/useProAccess"
 import { USAGE_QUERY_KEY, useAiAllowance } from "@/hooks/useAiAllowance"
+import { showAiError } from "@/lib/aiErrors"
 import { freeEmailSummary, useEmailAllowance } from "@/hooks/useEmailAllowance"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -353,8 +354,8 @@ export default function InvoiceEditorPage() {
       reset(invoice)
       setAiInstruction("")
       toast.success("Draft updated with AI.")
-    } catch {
-      toast.error("AI could not update this draft. Try a clearer instruction or edit manually.")
+    } catch (err: unknown) {
+      showAiError(err, "ai", "AI could not update this draft. Try a clearer instruction or edit manually.")
     } finally {
       setAiRevising(false)
       void queryClient.invalidateQueries({ queryKey: USAGE_QUERY_KEY })

@@ -4,6 +4,7 @@ import { Loader2, Mic } from "lucide-react"
 import { toast } from "sonner"
 import { transcribeAudio } from "@/api/voice"
 import { USAGE_QUERY_KEY } from "@/hooks/useAiAllowance"
+import { showAiError } from "@/lib/aiErrors"
 
 const BTN_SIZE = 112 // px — matches w-28 h-28
 
@@ -122,8 +123,8 @@ export function VoiceRecorder({ onTranscript, onBusyChange, disabled = false }: 
             onTranscriptRef.current(transcript)
             toast.success("Voice transcribed.")
           }
-        } catch {
-          toast.error("Transcription failed")
+        } catch (err: unknown) {
+          showAiError(err, "voice", "Your voice note could not be transcribed. Please try again.")
         } finally {
           setTranscribing(false)
           // Refresh usage so the paused-voice panel appears once the allowance runs out.
