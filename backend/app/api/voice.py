@@ -119,7 +119,14 @@ async def transcribe_audio(
         logger.info("transcription_completed")
         return TranscriptResponse(transcript=transcript)
     except openai.APIError as exc:
-        logger.error("transcription_provider_failed")
+        logger.error(
+            "transcription_provider_failed",
+            extra={
+                "status_code": getattr(exc, "status_code", None),
+                "provider_code": getattr(exc, "code", None),
+                "content_type": content_type,
+            },
+        )
         raise HTTPException(502, "Transcription provider failed.") from exc
     except HTTPException:
         raise

@@ -14,6 +14,8 @@ _SAFE_LOG_FIELDS = (
     "status_code",
     "duration_ms",
     "exception_type",
+    "provider_code",
+    "content_type",
 )
 
 
