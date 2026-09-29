@@ -13,8 +13,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # One 'ai_topup' purchase credits both tokens and voice seconds. The legacy
-    # single-resource kinds stay valid so existing balances keep spending.
+    # One 'ai_topup' purchase credits both tokens and voice seconds. The retired
+    # single-resource kinds stay valid for existing rows; the app ignores them.
     op.drop_constraint("ck_usage_pack_credits_kind", "usage_pack_credits", type_="check", schema="public")
     op.create_check_constraint(
         "ck_usage_pack_credits_kind",

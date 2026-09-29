@@ -27,7 +27,6 @@ from app.services.stripe_service import stripe_service
 from app.services.usage_service import (
     free_email_allowance,
     PACK_AI_TOPUP,
-    PACK_KINDS,
     credit_pack_from_checkout,
     get_usage_snapshot,
     is_pro_entitled,
@@ -1015,8 +1014,7 @@ async def _apply_pack_checkout_completed(db: AsyncSession, session: dict) -> Non
     if not user_id or not pack_kind or not session_id:
         logger.warning("stripe_pack_checkout_missing_fields")
         return
-    # Legacy kinds stay accepted so a checkout opened before the switch still credits.
-    if pack_kind not in PACK_KINDS:
+    if pack_kind != PACK_AI_TOPUP:
         logger.warning("stripe_pack_checkout_unknown_kind", extra={"pack_kind": pack_kind})
         return
     row = await _get_subscription(db, str(user_id))

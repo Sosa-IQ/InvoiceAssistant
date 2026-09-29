@@ -7,7 +7,7 @@ import pytest_asyncio
 from sqlalchemy import select
 
 from app.config import settings as app_settings
-from app.models.db_models import Subscription
+from app.models.db_models import Subscription, UsagePackCredit
 from app.services import usage_service
 from tests.support.alembic_runner import upgrade_to_head
 from tests.support.app_client import api_client, create_tenant
@@ -152,6 +152,37 @@ async def test_ai_topup_spends_tokens_and_voice_independently(usage_api) -> None
     usage = (await request(owner, "get", "/api/billing/usage")).json()
     assert usage["voice_seconds_pack_remaining"] == app_settings.voice_pack_seconds - 30
     assert usage["ai_tokens_pack_remaining"] == app_settings.ai_pack_tokens - 200
+
+
+@pytest.mark.asyncio
+async def test_retired_pack_kinds_are_not_spendable(usage_api) -> None:
+    request, owner, harness = usage_api
+    await _make_pro(harness, owner.id)
+
+    async with harness["session_factory"]() as session:
+        session.add(
+            UsagePackCredit(
+                user_id=owner.id,
+                pack_kind="ai_tokens",
+                tokens_remaining=5_000,
+                voice_seconds_remaining=0,
+                stripe_checkout_session_id="cs_retired_1",
+            )
+        )
+        await session.commit()
+        await usage_service.credit_pack_from_checkout(
+            session,
+            user_id=owner.id,
+            pack_kind="voice_seconds",
+            checkout_session_id="cs_retired_2",
+            payment_intent_id=None,
+        )
+        await session.commit()
+
+    usage = (await request(owner, "get", "/api/billing/usage")).json()
+    assert usage["ai_tokens_pack_remaining"] == 0
+    assert usage["voice_seconds_pack_remaining"] == 0
+    assert usage["ai_tokens_remaining"] == usage["ai_tokens_included"]
 
 
 @pytest.mark.asyncio

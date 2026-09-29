@@ -21,12 +21,8 @@ logger = logging.getLogger(__name__)
 _ACTIVE = frozenset({"active", "trialing"})
 FEATURE_AI = "ai_text"
 FEATURE_VOICE = "voice"
-# One purchase credits both AI tokens and voice seconds.
+# The only pack sold: one purchase credits both AI tokens and voice seconds.
 PACK_AI_TOPUP = "ai_topup"
-# Legacy single-resource packs; balances bought before the combined pack still spend.
-PACK_AI = "ai_tokens"
-PACK_VOICE = "voice_seconds"
-PACK_KINDS = frozenset({PACK_AI_TOPUP, PACK_AI, PACK_VOICE})
 
 
 @dataclass(frozen=True)
@@ -112,9 +108,12 @@ async def _sum_period(
 
 
 async def _pack_remaining(db: AsyncSession, *, user_id: str, column: InstrumentedAttribute[int]) -> int:
-    """Sum one balance column across every pack kind (a pack can hold both)."""
+    """Sum one balance column across the user's AI top-ups (each holds both balances)."""
     total = await db.scalar(
-        select(func.coalesce(func.sum(column), 0)).where(UsagePackCredit.user_id == user_id)
+        select(func.coalesce(func.sum(column), 0)).where(
+            UsagePackCredit.user_id == user_id,
+            UsagePackCredit.pack_kind == PACK_AI_TOPUP,
+        )
     )
     return int(total or 0)
 
@@ -183,7 +182,7 @@ async def _debit_packs(
     column: InstrumentedAttribute[int],
     amount: int,
 ) -> None:
-    """Spend oldest-first from whichever packs still hold this balance."""
+    """Spend oldest-first from AI top-ups that still hold this balance."""
     if amount <= 0:
         return
     remaining_need = amount
@@ -192,6 +191,7 @@ async def _debit_packs(
             select(UsagePackCredit)
             .where(
                 UsagePackCredit.user_id == user_id,
+                UsagePackCredit.pack_kind == PACK_AI_TOPUP,
                 column > 0,
             )
             .order_by(UsagePackCredit.created_at.asc())
@@ -354,24 +354,15 @@ async def credit_pack_from_checkout(
     )
     if existing is not None:
         return
-    if pack_kind == PACK_AI_TOPUP:
-        tokens = settings.ai_pack_tokens
-        voice = settings.voice_pack_seconds
-    elif pack_kind == PACK_AI:
-        tokens = settings.ai_pack_tokens
-        voice = 0
-    elif pack_kind == PACK_VOICE:
-        tokens = 0
-        voice = settings.voice_pack_seconds
-    else:
+    if pack_kind != PACK_AI_TOPUP:
         logger.warning("usage_pack_unknown_kind", extra={"pack_kind": pack_kind})
         return
     db.add(
         UsagePackCredit(
             user_id=user_id,
             pack_kind=pack_kind,
-            tokens_remaining=tokens,
-            voice_seconds_remaining=voice,
+            tokens_remaining=settings.ai_pack_tokens,
+            voice_seconds_remaining=settings.voice_pack_seconds,
             stripe_checkout_session_id=checkout_session_id,
             stripe_payment_intent_id=payment_intent_id,
         )

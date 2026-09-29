@@ -25,7 +25,7 @@ whichever process last booted, with no version, no review, and no way back.
 | `0010_billing` | Tenant subscription state, Stripe identifiers/event ordering, durable Checkout idempotency metadata, and the private webhook-event ledger with forced RLS. |
 | `0011_usage_metering` | AI/voice usage event ledger and rolling Pro-only pack credits (`usage_events`, `usage_pack_credits`) with owner-select RLS. |
 | `0012_invoice_status_lifecycle` | Maps invoice lifecycle statuses to drafted/sent/paid. |
-| `0013_combined_ai_topup` | Allows the combined `ai_topup` pack kind (one purchase credits AI tokens and voice seconds); legacy kinds stay valid. |
+| `0013_combined_ai_topup` | Allows the combined `ai_topup` pack kind (one purchase credits AI tokens and voice seconds). The retired kinds stay allowed by the constraint but the app no longer sells, credits, or spends them. |
 
 ## Prerequisites
 

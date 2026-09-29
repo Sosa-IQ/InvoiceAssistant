@@ -128,7 +128,7 @@ Put that endpoint's production `whsec_...` value in the production backend secre
 
 Create one one-time (non-recurring) $5 Price in Stripe test mode for the **AI top-up** and set `STRIPE_AI_PACK_PRICE_ID`. Each purchase credits both `AI_PACK_TOKENS` (default 1_000_000) and `VOICE_PACK_SECONDS` (default 3600).
 
-Pack Checkout is Pro-only. Webhook `checkout.session.completed` with `mode=payment` and metadata `pack_kind=ai_topup` credits the tenant. Legacy `ai_tokens` / `voice_seconds` pack balances still spend. Losing Pro freezes pack spend; balances are preserved for resubscribe.
+Pack Checkout is Pro-only. Webhook `checkout.session.completed` with `mode=payment` and metadata `pack_kind=ai_topup` credits the tenant. Balances from the retired `ai_tokens` / `voice_seconds` packs are not spent. Losing Pro freezes pack spend; balances are preserved for resubscribe.
 
 ## Safe rollback
 
