@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
 import { getUsageStatus } from "@/api/billing"
+import { usedShare } from "@/lib/usage"
 
-function clampRatio(value: number) {
-  if (!Number.isFinite(value)) return 0
-  return Math.min(1, Math.max(0, value))
+function voiceLeftLabel(seconds: number) {
+  if (seconds <= 0) return "No voice left"
+  if (seconds < 60) return "Less than 1 min left"
+  return `${Math.floor(seconds / 60)} min left`
 }
 
 export default function AiUsageCard() {
@@ -21,8 +23,19 @@ export default function AiUsageCard() {
   }
 
   const usage = usageQuery.data
-  const aiPct = Math.round(clampRatio(usage.ai_usage_ratio) * 100)
-  const voicePct = Math.round(clampRatio(usage.voice_usage_ratio) * 100)
+  const aiPct = Math.round(
+    usedShare(usage.ai_tokens_used, usage.ai_tokens_remaining, usage.ai_usage_ratio, usage.pro_entitled) * 100
+  )
+  const voicePct = Math.round(
+    usedShare(usage.voice_seconds_used, usage.voice_seconds_remaining, usage.voice_usage_ratio, usage.pro_entitled) *
+      100
+  )
+  const topUpNote = (packRemaining: number) =>
+    packRemaining <= 0
+      ? ""
+      : usage.packs_frozen
+      ? " · top-up frozen until Pro returns"
+      : " · includes your top-up"
 
   return (
     <section className="rounded-[24px] border bg-card p-5 shadow-sm sm:p-6">
@@ -55,9 +68,10 @@ export default function AiUsageCard() {
           >
             <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${aiPct}%` }} />
           </div>
-          {usage.ai_tokens_pack_remaining > 0 && (
+          {(usage.pro_entitled || usage.ai_tokens_pack_remaining > 0) && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Top-up balance available{usage.packs_frozen ? " (frozen until Pro returns)" : ""}.
+              {usage.pro_entitled ? `${100 - aiPct}% left` : "AI paused"}
+              {topUpNote(usage.ai_tokens_pack_remaining)}
             </p>
           )}
         </div>
@@ -77,9 +91,10 @@ export default function AiUsageCard() {
           >
             <div className="h-full rounded-full bg-chart-2 transition-all" style={{ width: `${voicePct}%` }} />
           </div>
-          {usage.voice_seconds_pack_remaining > 0 && (
+          {(usage.pro_entitled || usage.voice_seconds_pack_remaining > 0) && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Top-up balance available{usage.packs_frozen ? " (frozen until Pro returns)" : ""}.
+              {usage.pro_entitled ? voiceLeftLabel(usage.voice_seconds_remaining) : "Voice paused"}
+              {topUpNote(usage.voice_seconds_pack_remaining)}
             </p>
           )}
         </div>
@@ -99,6 +114,9 @@ export default function AiUsageCard() {
             Your plan’s included AI and voice reset each billing period and do not roll over. An AI top-up adds extra
             AI and voice together and rolls until it is used, but only while Pro is active. If Pro ends, top-ups
             freeze and return when you resubscribe.
+          </p>
+          <p>
+            The bars show everything you have this period, including any top-up, so buying a top-up lowers them.
           </p>
           <p>You can always create and edit invoices manually, even if AI usage is full.</p>
         </div>
