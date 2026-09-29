@@ -34,6 +34,7 @@ class FakeStripeService:
     def __init__(self) -> None:
         self.customer_calls: list[dict] = []
         self.checkout_calls: list[dict] = []
+        self.rejected_checkout_calls: list[dict] = []
         self.portal_calls: list[dict] = []
         self.events: dict[bytes, dict] = {}
         self.price: dict = _default_price()
@@ -44,6 +45,7 @@ class FakeStripeService:
         self.subscriptions_by_customer: dict[str, list[dict]] = {}
         self.open_sessions: list[dict] = []
         self.missing_customers: set[str] = set()
+        self.expired_promotion_codes: set[str] = set()
         self._session_seq = 0
         self._customer_seq = 0
 
@@ -66,6 +68,13 @@ class FakeStripeService:
 
     async def create_checkout_session(self, **kwargs) -> dict:
         self._require_customer(kwargs["customer_id"])
+        if kwargs.get("promotion_code") in self.expired_promotion_codes:
+            self.rejected_checkout_calls.append(kwargs)
+            raise stripe.InvalidRequestError(
+                message="Coupon launch is expired and cannot be applied.",
+                param="discounts[0][promotion_code][coupon]",
+                code="coupon_expired",
+            )
         self.checkout_calls.append(kwargs)
         self._session_seq += 1
         session = {
@@ -363,6 +372,35 @@ async def test_launch_discount_auto_applies_to_monthly_and_no_code_box(
     checkout = fake.checkout_calls[-1]
     assert checkout["promotion_code"] == "promo_launch"
     assert checkout["allow_promotion_codes"] is False
+
+
+async def test_expired_launch_discount_falls_back_to_full_price(
+    billing_api_fixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request, owner, _, fake, _ = billing_api_fixture
+    monkeypatch.setattr(app_settings, "stripe_launch_promotion_code", "promo_launch")
+    fake.expired_promotion_codes.add("promo_launch")
+
+    response = await request(owner, "post", "/api/billing/checkout-session", json={"interval": "month"})
+    assert response.status_code == 200, response.text
+    assert [call["promotion_code"] for call in fake.rejected_checkout_calls] == ["promo_launch"]
+    assert len(fake.checkout_calls) == 1
+    checkout = fake.checkout_calls[0]
+    assert checkout["promotion_code"] is None
+    assert checkout["allow_promotion_codes"] is False
+    assert checkout["idempotency_key"] == f"{fake.rejected_checkout_calls[0]['idempotency_key']}:full-price"
+
+
+def test_only_discount_rejections_trigger_the_full_price_fallback() -> None:
+    expired = stripe.InvalidRequestError(
+        message="Coupon is expired", param="discounts[0][promotion_code][coupon]", code="coupon_expired"
+    )
+    missing_customer = stripe.InvalidRequestError(
+        message="No such customer", param="customer", code="resource_missing"
+    )
+    assert billing_api._is_promotion_rejected_error(expired) is True
+    assert billing_api._is_promotion_rejected_error(missing_customer) is False
+    assert billing_api._is_promotion_rejected_error(RuntimeError("network")) is False
 
 
 async def test_checkout_is_server_owned_and_persists_idempotency_args(billing_api_fixture) -> None:
